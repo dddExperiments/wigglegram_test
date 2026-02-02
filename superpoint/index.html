@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuperPoint WebGPU Demo</title>
+    <!-- Load ONNX Runtime Web from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.webgpu.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111;
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        .container {
+            position: relative;
+            max-width: 100%;
+            border: 1px solid #333;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        canvas {
+            display: block;
+            max-width: 100%;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        button,
+        input::file-selector-button {
+            padding: 8px 16px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            background-color: #3b82f6;
+            color: white;
+            font-weight: 600;
+        }
+
+        button:hover,
+        input::file-selector-button:hover {
+            background-color: #2563eb;
+        }
+
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        .slots-container {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .slot {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            background: #222;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+
+        .canvas-container {
+            position: relative;
+            border: 1px solid #444;
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+            max-width: 100%;
+        }
+
+        h3 {
+            margin: 0;
+            color: #3b82f6;
+        }
+
+        .matching-container {
+            margin-top: 30px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #matchCanvas {
+            border: 2px solid #3b82f6;
+            max-width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>SuperPoint + LightGlue WebGPU</h1>
+
+    <div class="controls">
+        <p id="status">Loading models...</p>
+        <button id="matchBtn" disabled>Run LightGlue Matching</button>
+    </div>
+
+    <div class="slots-container">
+        <div class="slot">
+            <h3>Image 1</h3>
+            <input type="file" class="imageInput" data-slot="0" accept="image/*">
+            <div class="canvas-container">
+                <canvas class="outputCanvas" data-slot="0"></canvas>
+            </div>
+        </div>
+        <div class="slot">
+            <h3>Image 2</h3>
+            <input type="file" class="imageInput" data-slot="1" accept="image/*">
+            <div class="canvas-container">
+                <canvas class="outputCanvas" data-slot="1"></canvas>
+            </div>
+        </div>
+        <div class="matching-container">
+            <h3>Matches</h3>
+            <canvas id="matchCanvas"></canvas>
+        </div>
+
+        <script type="module" src="main.js"></script>
+</body>
+
+</html>
