@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LiteAnyStereo | 3D Stereo Vision</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+  <header>
+    <div class="header-left">
+      <h1>LiteAnyStereo <span>3D Engine</span></h1>
+    </div>
+    <div class="top-controls">
+      <div id="status-bar">Status: Initializing...</div>
+      <select id="sample-select">
+        <option value="Explorer_HD2K_SN28883284_19-56-16.png">Sample 1: Nature</option>
+        <option value="Explorer_HD2K_SN28883284_20-36-55.png">Sample 2: Corridor</option>
+        <option value="Explorer_HD2K_SN28883284_20-41-07.png">Sample 3: Objects</option>
+      </select>
+      <div class="slider-group">
+        <label for="point-size">Point Size</label>
+        <input type="range" id="point-size" min="1" max="100" step="1" value="20">
+      </div>
+      <button id="run-btn" class="primary-btn" disabled>
+        <span class="icon">▶</span> Compute 3D
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <aside class="sidebar">
+      <div class="view-card" title="Left RGB Input">
+        <img id="img-left" src="" alt="Left-RGB">
+        <div class="view-label">Left-RGB</div>
+      </div>
+
+      <div class="view-card" title="Right RGB Input">
+        <img id="img-right" src="" alt="Right-RGB">
+        <div class="view-label">Right-RGB</div>
+      </div>
+
+      <div class="view-card" title="Computed Disparity Map">
+        <canvas id="canvas-result"></canvas>
+        <div class="view-label">Disparity</div>
+        <div class="loading-overlay hidden" id="loading-overlay">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="viewer-3d">
+      <canvas id="canvas-3d"></canvas>
+      <div class="view-label">Metric Point Cloud</div>
+    </section>
+  </main>
+
+  <script type="module" src="/main.js"></script>
+</body>
+
+</html>
