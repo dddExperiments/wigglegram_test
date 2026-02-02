@@ -7,7 +7,7 @@ ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency / 2);
 ort.env.wasm.simd = true;
 ort.env.wasm.wasmPaths = "./";
 
-const MODEL_PATH = './LiteAnyStereo.onnx';
+const MODEL_PATH = './public/LiteAnyStereo.onnx';
 
 // UI Elements
 const sampleSelect = document.getElementById('sample-select');
@@ -128,7 +128,7 @@ const init = async () => {
 
 const loadSample = async () => {
   const filename = sampleSelect.value;
-  const path = `./assets/${filename}`;
+  const path = `./public/assets/${filename}`;
   updateStatus(`Loading ${filename}...`);
 
   try {
