@@ -1,13 +1,12 @@
-
-import * as ort from 'onnxruntime-web';
+const ort = window.ort;
 import { PointCloudRenderer } from './src/renderer.js';
 
 // Initialize ORT
 ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency / 2);
 ort.env.wasm.simd = true;
-ort.env.wasm.wasmPaths = "./";
+ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/";
 
-const MODEL_PATH = './public/LiteAnyStereo.onnx';
+const MODEL_PATH = './LiteAnyStereo.onnx';
 
 // UI Elements
 const sampleSelect = document.getElementById('sample-select');
