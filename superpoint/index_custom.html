@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SuperPoint WebGPU Test</title>
+    <title>SuperPoint WebGPU Demo</title>
     <!-- Load ONNX Runtime Web from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.webgpu.min.js"></script>
     <style>
@@ -115,7 +115,7 @@
 
 <body>
 
-    <h1>SuperPoint + LightGlue WebGPU (Test Mode)</h1>
+    <h1>SuperPoint + LightGlue WebGPU</h1>
 
     <div class="controls">
         <p id="status">Loading models...</p>
@@ -125,14 +125,14 @@
     <div class="slots-container">
         <div class="slot">
             <h3>Image 1</h3>
-            <!-- No file input needed -->
+            <input type="file" class="imageInput" data-slot="0" accept="image/*">
             <div class="canvas-container">
                 <canvas class="outputCanvas" data-slot="0"></canvas>
             </div>
         </div>
         <div class="slot">
             <h3>Image 2</h3>
-            <!-- No file input needed -->
+            <input type="file" class="imageInput" data-slot="1" accept="image/*">
             <div class="canvas-container">
                 <canvas class="outputCanvas" data-slot="1"></canvas>
             </div>
@@ -142,7 +142,7 @@
             <canvas id="matchCanvas"></canvas>
         </div>
 
-        <script type="module" src="main_test.js"></script>
+        <script type="module" src="main.js"></script>
 </body>
 
 </html>
