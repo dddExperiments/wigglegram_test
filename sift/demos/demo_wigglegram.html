@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Browser Wigglegram Test</title>
+
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #4ecdc4;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #aaa;
+            margin-bottom: 30px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #4ecdc4;
+            color: #1a1a2e;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #3dbdb5;
+        }
+
+        button:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+        }
+
+        #log {
+            background: #16213e;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            margin-bottom: 20px;
+        }
+
+        .log-info {
+            color: #4ecdc4;
+        }
+
+        .log-pass {
+            color: #0f0;
+        }
+
+        .log-fail {
+            color: #f44;
+        }
+
+        .result-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .image-box {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .image-box img {
+            max-width: 400px;
+            max-height: 400px;
+            border-radius: 4px;
+        }
+
+        .image-box h3 {
+            margin: 10px 0 5px;
+            color: #4ecdc4;
+        }
+
+        #wigglegram {
+            display: none;
+        }
+
+        #wigglegram.show {
+            display: block;
+        }
+
+        .stats {
+            background: #0d1b2a;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        #webglCanvas {
+            border-radius: 4px;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .download-btn {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: #4ecdc4;
+            color: #1a1a2e;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .download-btn:hover {
+            background: #3dbdb5;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Browser-Only Wigglegram Generator</h1>
+    <p class="subtitle">No Python server required - SIFT + RANSAC + GIF encoding all in JavaScript/WebGPU</p>
+
+    <div class="controls">
+        <button id="runBtn">Generate Wigglegram</button>
+    </div>
+
+    <div id="log"></div>
+
+    <div class="result-container">
+        <div class="image-box">
+            <h3>Image A</h3>
+            <img id="imgA" src="../public/testdata/b/P1170063.JPG">
+        </div>
+        <div class="image-box">
+            <h3>Image B</h3>
+            <img id="imgB" src="../public/testdata/b/P1170067.JPG">
+        </div>
+        <div class="image-box" id="wigglegram">
+            <h3>Wigglegram Result (WebGL)</h3>
+            <canvas id="webglCanvas" width="600" height="450"></canvas>
+            <div class="stats" id="stats"></div>
+            <a id="downloadLink" class="download-btn">📥 Download GIF</a>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+        import { MatcherWebGPU } from '../src/matcher-webgpu.js';
+        import { WigglegramGenerator } from './js/wigglegram.js';
+
+        const log = document.getElementById('log');
+
+        // WebGL state
+        let scene, camera, renderer, planeMesh;
+        let textureA, textureB;
+        let currentTexture = 0;
+        let animationId = null;
+        let lastSwapTime = 0;
+        const SWAP_INTERVAL = 200; // ms between frame swaps
+
+        // GIF blob for download
+        let gifBlob = null;
+
+        function addLog(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `log-${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+            console.log(`[${type}] ${msg}`);
+        }
+
+        function initWebGL(width, height) {
+            const canvas = document.getElementById('webglCanvas');
+
+            // Calculate aspect ratio and set canvas size
+            const maxSize = 600;
+            const scale = Math.min(maxSize / width, maxSize / height);
+            const canvasWidth = Math.floor(width * scale);
+            const canvasHeight = Math.floor(height * scale);
+
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+
+            // Three.js setup
+            scene = new THREE.Scene();
+            camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+            renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+            renderer.setSize(canvasWidth, canvasHeight);
+
+            // Create plane geometry for displaying images
+            const geometry = new THREE.PlaneGeometry(2, 2);
+            const material = new THREE.MeshBasicMaterial({ map: null });
+            planeMesh = new THREE.Mesh(geometry, material);
+            scene.add(planeMesh);
+
+            return { canvasWidth, canvasHeight };
+        }
+
+        function createTextureFromImageData(imageData) {
+            const texture = new THREE.DataTexture(
+                imageData.data,
+                imageData.width,
+                imageData.height,
+                THREE.RGBAFormat,
+                THREE.UnsignedByteType
+            );
+            texture.needsUpdate = true;
+            texture.flipY = true;
+            return texture;
+        }
+
+        function animateWigglegram(timestamp) {
+            if (timestamp - lastSwapTime > SWAP_INTERVAL) {
+                currentTexture = 1 - currentTexture;
+                planeMesh.material.map = currentTexture === 0 ? textureA : textureB;
+                planeMesh.material.needsUpdate = true;
+                lastSwapTime = timestamp;
+            }
+
+            renderer.render(scene, camera);
+            animationId = requestAnimationFrame(animateWigglegram);
+        }
+
+        function stopAnimation() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+        }
+
+        async function run() {
+            const btn = document.getElementById('runBtn');
+            btn.disabled = true;
+            log.innerHTML = '';
+            stopAnimation();
+
+            try {
+                addLog('=== Browser-Only Wigglegram Generation ===', 'info');
+
+                // Initialize WebGPU SIFT
+                addLog('Initializing WebGPU SIFT...', 'info');
+                const sift = new SIFTWebGPUPacked();
+                await sift.init();
+                const matcher = new MatcherWebGPU(sift.device);
+                await matcher.init();
+                addLog('✓ WebGPU initialized', 'pass');
+
+                // Load images
+                const imgElA = document.getElementById('imgA');
+                const imgElB = document.getElementById('imgB');
+
+                addLog(`Loading images: ${imgElA.src.split('/').pop()}, ${imgElB.src.split('/').pop()}`, 'info');
+
+                // Helper to load bitmap
+                const loadBitmap = async (src) => {
+                    const res = await fetch(src);
+                    const blob = await res.blob();
+                    return createImageBitmap(blob);
+                };
+
+                const bmpA = await loadBitmap(imgElA.src);
+                const bmpB = await loadBitmap(imgElB.src);
+                addLog(`✓ Images loaded: ${bmpA.width}x${bmpA.height}`, 'pass');
+
+                // Run SIFT A
+                addLog('Running WebGPU SIFT on image A...', 'info');
+                const t0 = performance.now();
+                const kpsA = await sift.detectAndCompute(bmpA);
+                bmpA.close();
+                const timeA = performance.now() - t0;
+                addLog(`✓ Image A: ${kpsA.length} keypoints in ${timeA.toFixed(0)}ms`, 'pass');
+
+                // Run SIFT B
+                addLog('Running WebGPU SIFT on image B...', 'info');
+                const t1 = performance.now();
+                const kpsB = await sift.detectAndCompute(bmpB);
+                bmpB.close();
+                const timeB = performance.now() - t1;
+                addLog(`✓ Image B: ${kpsB.length} keypoints in ${timeB.toFixed(0)}ms`, 'pass');
+
+                // Match descriptors on GPU
+                addLog('Matching descriptors on GPU...', 'info');
+                const t2 = performance.now();
+
+                // Flatten descriptors for GPU matching
+                const flattenDescriptors = (kps) => {
+                    const arr = new Float32Array(kps.length * 128);
+                    for (let i = 0; i < kps.length; i++) {
+                        arr.set(kps[i].descriptor, i * 128);
+                    }
+                    return arr;
+                };
+
+                const flatA = flattenDescriptors(kpsA);
+                const flatB = flattenDescriptors(kpsB);
+
+                const matches = await matcher.matchDescriptors(flatA, flatB, 0.75);
+                const timeMatch = performance.now() - t2;
+                addLog(`✓ Found ${matches.length} matches in ${timeMatch.toFixed(0)}ms (GPU)`, matches.length >= 4 ? 'pass' : 'fail');
+
+                if (matches.length < 4) {
+                    throw new Error(`Only ${matches.length} matches, need at least 4`);
+                }
+
+                // Generate wigglegram
+                addLog('Computing RANSAC homography (pure JS)...', 'info');
+                const imgBitmapA = await createImageBitmap(await (await fetch(imgElA.src)).blob());
+                const imgBitmapB = await createImageBitmap(await (await fetch(imgElB.src)).blob());
+
+                const t3 = performance.now();
+                const result = await WigglegramGenerator.create(imgBitmapA, imgBitmapB, kpsA, kpsB, matches, {
+                    maxSize: 600,
+                    frameDelay: 20
+                });
+                const timeWiggle = performance.now() - t3;
+
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+
+                addLog(`✓ Wigglegram created in ${timeWiggle.toFixed(0)}ms`, 'pass');
+                addLog(`  Matches used: ${result.matches}`, 'info');
+                addLog(`  RANSAC inliers: ${result.inliers}`, 'info');
+                addLog(`  GIF size: ${Math.round(result.gifBlob.size / 1024)} KB`, 'info');
+
+                // Store GIF for download
+                gifBlob = result.gifBlob;
+                const gifUrl = URL.createObjectURL(gifBlob);
+                document.getElementById('downloadLink').href = gifUrl;
+                document.getElementById('downloadLink').download = 'wigglegram.gif';
+
+                // Setup WebGL rendering with the warped frames from WigglegramGenerator
+                addLog('Setting up WebGL preview...', 'info');
+                const { canvasWidth, canvasHeight } = initWebGL(result.width, result.height);
+
+                // Use the actual warped frames from the result
+                textureA = createTextureFromImageData(result.frameA);
+                textureB = createTextureFromImageData(result.frameB);
+
+                // Show result container
+                document.getElementById('wigglegram').classList.add('show');
+
+                // Start animation
+                currentTexture = 0;
+                planeMesh.material.map = textureA;
+                lastSwapTime = 0;
+                animateWigglegram(0);
+
+                const totalTime = timeA + timeB + timeMatch + timeWiggle;
+                document.getElementById('stats').innerHTML = `
+                    <strong>Total time:</strong> ${totalTime.toFixed(0)}ms<br>
+                    <strong>SIFT:</strong> ${(timeA + timeB).toFixed(0)}ms | 
+                    <strong>Match:</strong> ${timeMatch.toFixed(0)}ms | 
+                    <strong>Warp+GIF:</strong> ${timeWiggle.toFixed(0)}ms<br>
+                    <strong>Inliers:</strong> ${result.inliers}/${result.matches}
+                `;
+
+                addLog(`\n=== SUCCESS! Total time: ${totalTime.toFixed(0)}ms ===`, 'pass');
+                addLog('🎉 100% browser-based - no Python server used!', 'pass');
+                addLog('💡 WebGL preview running at 60fps, GIF available for download', 'info');
+
+            } catch (err) {
+                addLog(`ERROR: ${err.message}`, 'fail');
+                console.error(err);
+            }
+
+            btn.disabled = false;
+        }
+
+        document.getElementById('runBtn').onclick = run;
+    </script>
+</body>
+
+</html>

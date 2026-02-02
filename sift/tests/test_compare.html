@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>CPU vs GPU SIFT Comparison</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://esm.sh/three@0.182.0",
+                "three/webgpu": "https://esm.sh/three@0.182.0/webgpu",
+                "three/tsl": "https://esm.sh/three@0.182.0/tsl",
+                "three/addons/": "https://esm.sh/three@0.182.0/examples/jsm/"
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            background: #16213e;
+            border-radius: 5px;
+        }
+
+        .pass {
+            border-left: 4px solid #0f0;
+        }
+
+        .fail {
+            border-left: 4px solid #f00;
+        }
+
+        .info {
+            border-left: 4px solid #0af;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+
+        #log {
+            white-space: pre-wrap;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>CPU vs GPU SIFT Comparison</h1>
+    <button id="runBtn">Run Comparison</button>
+    <div id="log"></div>
+
+    <script type="module">
+        import { SIFTCPU } from '../src/sift-cpu.js';
+        import { SIFTWebGPUDefault } from '../src/sift-webgpu-default.js';
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+
+        const IMAGE_PATH = '../public/testdata/b/P1170063.JPG';
+
+        const log = document.getElementById('log');
+
+        function addResult(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.textContent = msg;
+            log.appendChild(div);
+            // Auto-scroll
+            log.scrollTop = log.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${msg}`);
+        }
+
+        // Add GPU Selector
+        const controlsDiv = document.createElement('div');
+        controlsDiv.style.marginBottom = '10px';
+        controlsDiv.innerHTML = `
+            <label style="color: #eee; margin-right: 10px;">GPU Implementation: 
+                <select id="gpuMode" style="padding: 5px; border-radius: 4px; background: #333; color: white; border: 1px solid #555;">
+                    <option value="unpacked">WebGPU Default (Unpacked)</option>
+                    <option value="packed" selected>WebGPU Packed (Optimized)</option>
+                </select>
+            </label>
+        `;
+        document.body.insertBefore(controlsDiv, document.getElementById('runBtn'));
+
+        async function runComparison() {
+            const runBtn = document.getElementById('runBtn');
+            const gpuMode = document.getElementById('gpuMode').value;
+
+            runBtn.disabled = true;
+            log.innerHTML = '';
+
+            try {
+                addResult('=== CPU vs GPU SIFT Comparison ===', 'info');
+                addResult(`Image: ${IMAGE_PATH}`, 'info');
+                addResult(`GPU Mode: ${gpuMode === 'packed' ? 'Packed (Optimized)' : 'Default (Unpacked)'}`, 'info');
+
+                // 1. CPU SIFT (Reference)
+                addResult('\n--- CPU SIFT ---', 'info');
+                const cpuSift = new SIFTCPU();
+
+                const cpuStart = performance.now();
+                await cpuSift.detectAndCompute(IMAGE_PATH);
+                const cpuTime = performance.now() - cpuStart;
+
+                addResult(`  Image size: ${cpuSift.width}x${cpuSift.height}`, 'info');
+
+                addResult(`  Keypoints: ${cpuSift.keypoints.length}`, cpuSift.keypoints.length > 0 ? 'pass' : 'fail');
+                addResult(`  Time: ${cpuTime.toFixed(1)}ms`, 'info');
+
+                // 2. GPU SIFT (Selected Version)
+                addResult(`\n--- GPU SIFT (${gpuMode}) ---`, 'info');
+                let gpuSift;
+
+                if (gpuMode === 'packed') {
+                    gpuSift = new SIFTWebGPUPacked();
+                } else {
+                    gpuSift = new SIFTWebGPUDefault();
+                }
+
+                await gpuSift.init();
+
+                // Load Image (create bitmap for GPU)
+                const img = new Image();
+                img.src = IMAGE_PATH;
+                await new Promise(r => img.onload = r);
+                const bitmap = await createImageBitmap(img);
+
+                // await gpuSift.loadImage(bitmap); // Removed
+
+                const gpuStart = performance.now();
+                const gpuKeypoints = await gpuSift.detectAndCompute(bitmap);
+                const gpuTime = performance.now() - gpuStart;
+
+                // Cleanup bitmap
+                bitmap.close();
+
+                addResult(`  Keypoints: ${gpuKeypoints.length}`, gpuKeypoints.length > 0 ? 'pass' : 'fail');
+                addResult(`  Time: ${gpuTime.toFixed(1)}ms`, 'info');
+
+                // Diagnostic: Ratio of Keypoint Counts
+                const ratio = (gpuKeypoints.length / cpuSift.keypoints.length * 100).toFixed(1);
+                addResult(`  GPU/CPU Keypoint Count Ratio: ${ratio}%`, parseFloat(ratio) > 50 ? 'pass' : 'fail');
+
+                // 3. Descriptor Validation
+                addResult(`\n--- Descriptor Validation ---`, 'info');
+
+                const countValidDescriptors = (keypoints) => {
+                    return keypoints.filter(kp =>
+                        kp.descriptor && (kp.descriptor.length === 128)
+                    ).length;
+                };
+
+                const cpuDescCount = countValidDescriptors(cpuSift.keypoints);
+                const gpuDescCount = countValidDescriptors(gpuKeypoints);
+
+                addResult(`  CPU: ${cpuDescCount}/${cpuSift.keypoints.length} descriptors`,
+                    cpuDescCount === cpuSift.keypoints.length ? 'pass' : 'fail');
+                addResult(`  GPU: ${gpuDescCount}/${gpuKeypoints.length} descriptors`,
+                    gpuDescCount === gpuKeypoints.length ? 'pass' : 'fail');
+
+                // 4. Feature Matching & Similarity
+                addResult(`\n--- Matching Accuracy ---`, 'info');
+
+                // Helper: find closest keypoint by position (spatial match)
+                const findSpatialMatch = (kp, candidates, tolerance = 2.0) => {
+                    let best = null;
+                    let minIdist = Infinity;
+
+                    // Optimization: Rough spatial grid or just brute force for now (demo scale)
+                    for (const cand of candidates) {
+                        // Check octave consistency roughly? GPU/CPU octave indices might differ slightly or be same
+                        // if (Math.abs(kp.octave - cand.octave) > 0.5) continue;
+
+                        const dx = kp.x - cand.x;
+                        const dy = kp.y - cand.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < tolerance && dist < minIdist) {
+                            minIdist = dist;
+                            best = cand;
+                        }
+                    }
+                    return best;
+                };
+
+                // Helper: Cosine Similarity
+                const cosineSim = (a, b) => {
+                    let dot = 0, ma = 0, mb = 0;
+                    for (let i = 0; i < 128; i++) {
+                        dot += a[i] * b[i];
+                        ma += a[i] * a[i];
+                        mb += b[i] * b[i];
+                    }
+                    return dot / (Math.sqrt(ma) * Math.sqrt(mb) + 1e-9);
+                };
+
+                // Compare subset of CPU features to find their GPU counterparts
+                const numSamples = Math.min(100, cpuSift.keypoints.length);
+                const sampleKeypoints = cpuSift.keypoints.slice(0, numSamples);
+
+                let matchesFound = 0;
+                let highSimMatches = 0;
+                let accumSim = 0;
+                let accumOriDiff = 0;
+                let validOriDiffs = 0;
+
+                for (const cpuKp of sampleKeypoints) {
+                    const gpuKp = findSpatialMatch(cpuKp, gpuKeypoints, 1.5); // 1.5px tolerance
+
+                    if (gpuKp) {
+                        matchesFound++;
+                        const sim = cosineSim(cpuKp.descriptor, gpuKp.descriptor);
+                        accumSim += sim;
+                        if (sim > 0.9) highSimMatches++;
+
+                        let oriDiff = Math.abs(cpuKp.orientation - gpuKp.orientation);
+                        if (oriDiff > Math.PI) oriDiff = 2 * Math.PI - oriDiff;
+                        accumOriDiff += oriDiff;
+                        validOriDiffs++;
+                    }
+                }
+
+                addResult(`  Spatial Matches found (CPU->GPU): ${matchesFound}/${numSamples}`, matchesFound > numSamples * 0.5 ? 'pass' : 'fail');
+
+                if (matchesFound > 0) {
+                    const avgSim = (accumSim / matchesFound).toFixed(3);
+                    const avgOriDeg = (accumOriDiff / validOriDiffs * 180 / Math.PI).toFixed(1);
+
+                    addResult(`  Avg Descriptor Similarity: ${avgSim}`, parseFloat(avgSim) > 0.9 ? 'pass' : 'fail');
+                    addResult(`  High Quality Matches (>0.9 sim): ${highSimMatches}/${matchesFound}`, 'info');
+                    addResult(`  Avg Orientation Difference: ${avgOriDeg}°`, parseFloat(avgOriDeg) < 10 ? 'pass' : 'fail');
+                }
+
+            } catch (err) {
+                addResult(`ERROR: ${err.message}`, 'fail');
+                console.error(err);
+            } finally {
+                runBtn.disabled = false;
+            }
+        }
+
+        document.getElementById('runBtn').onclick = runComparison;
+    </script>
+</body>
+
+</html>

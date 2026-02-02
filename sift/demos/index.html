@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU SIFT Demos</title>
+    <link rel="icon" href="../favicon.svg">
+    <link rel="stylesheet" href="../styles/common.css">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px;
+        }
+
+        .test-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        .test-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-decoration: none;
+            color: white;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .test-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateX(5px);
+        }
+
+        .test-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #48bb78;
+            /* Green tint for demos */
+        }
+
+        .test-desc {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 4px;
+        }
+
+        h1 {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>WebSDK SIFT - Interactive Demos</h1>
+
+    <div class="test-list">
+        <a href="demo_webcam.html" class="test-item">
+            <div>
+                <div class="test-name">Webcam SIFT</div>
+                <div class="test-desc">Real-time SIFT feature detection on live webcam feed.</div>
+            </div>
+            <span class="btn btn-secondary">Launch</span>
+        </a>
+
+        <a href="demo_webcam_tracking.html" class="test-item">
+            <div>
+                <div class="test-name">Webcam Tracking</div>
+                <div class="test-desc">Object tracking using SIFT matching from webcam input.</div>
+            </div>
+            <span class="btn btn-secondary">Launch</span>
+        </a>
+
+        <a href="demo_wigglegram.html" class="test-item">
+            <div>
+                <div class="test-name">Wigglegram Creator</div>
+                <div class="test-desc">Generate 3D wigglegrams from stereo image pairs.</div>
+            </div>
+            <span class="btn btn-secondary">Launch</span>
+        </a>
+
+        <a href="demo_viz_pyramid.html" class="test-item">
+            <div>
+                <div class="test-name">Pyramid Visualization</div>
+                <div class="test-desc">Visualizer for internal Gaussian and DoG pyramid stages.</div>
+            </div>
+            <span class="btn btn-secondary">Launch</span>
+        </a>
+
+        <a href="benchmark.html" class="test-item">
+            <div>
+                <div class="test-name">Performance Benchmark</div>
+                <div class="test-desc">Compare CPU, GPU Default, and GPU Packed implementation speeds.</div>
+            </div>
+            <span class="btn btn-secondary">Launch</span>
+        </a>
+
+        <a href="demo_parallel_load.html" class="test-item">
+            <div>
+                <div class="test-name">Parallel Processing</div>
+                <div class="test-desc">Stress test concurrent WebGPU descriptor computations.</div>
+            </div>
+            <span class="btn btn-secondary">Launch</span>
+        </a>
+
+        <a href="demo_file_io.html" class="test-item">
+            <div>
+                <div class="test-name">File I/O Demo</div>
+                <div class="test-desc">Process local files and visualize detected keypoints.</div>
+            </div>
+            <span class="btn btn-secondary">Launch</span>
+        </a>
+
+        <a href="demo_stereo_pair.html" class="test-item">
+            <div>
+                <div class="test-name">Stereo Matcher</div>
+                <div class="test-desc">Legacy stereo matching and wigglegram generation tool.</div>
+            </div>
+            <span class="btn btn-secondary">Launch</span>
+        </a>
+    </div>
+
+    <div style="margin-top: 40px;">
+        <a href="../index.html" class="btn btn-primary">Back to Home</a>
+    </div>
+</body>
+
+</html>

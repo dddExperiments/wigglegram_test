@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU SIFT Tests</title>
+    <link rel="stylesheet" href="../styles/common.css">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px;
+            overflow: auto !important;
+        }
+
+        .test-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        .test-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-decoration: none;
+            color: white;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .test-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateX(5px);
+        }
+
+        .test-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .test-desc {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 4px;
+        }
+
+        h1 {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>WebGPU SIFT - Test Suite</h1>
+
+    <div class="test-list">
+        <a href="test.html" class="test-item">
+            <div>
+                <div class="test-name">Basic Unit Tests</div>
+                <div class="test-desc">Tests initialization and basic pipeline execution on synthetic data.</div>
+            </div>
+            <span class="btn btn-secondary">Run</span>
+        </a>
+
+        <a href="unit-test.html" class="test-item">
+            <div>
+                <div class="test-name">CPU vs GPU Comparision</div>
+                <div class="test-desc">Compares keypoint counts between CPU, GPU Default, and GPU Packed.</div>
+            </div>
+            <span class="btn btn-secondary">Run</span>
+        </a>
+
+        <a href="test_rotation_invariance.html" class="test-item">
+            <div>
+                <div class="test-name">Rotation Invariance (Graph)</div>
+                <div class="test-desc">RANSAC matching performance across 360 degrees of rotation.</div>
+            </div>
+            <span class="btn btn-secondary">Run</span>
+        </a>
+
+        <a href="test_scale_invariance.html" class="test-item">
+            <div>
+                <div class="test-name">Scale Invariance (Graph)</div>
+                <div class="test-desc">Robustness test across image scales (0.2x to 2.0x).</div>
+            </div>
+            <span class="btn btn-secondary">Run</span>
+        </a>
+
+        <a href="test_rotation_invariance_keypoints.html" class="test-item">
+            <div>
+                <div class="test-name">Rotation Debug (Visual)</div>
+                <div class="test-desc">Visual inspection of keypoint matching at a specific angle (42°).</div>
+            </div>
+            <span class="btn btn-secondary">Run</span>
+        </a>
+
+        <a href="test_compare.html" class="test-item">
+            <div>
+                <div class="test-name">Visual Comparison Test</div>
+                <div class="test-desc">Side-by-side visual verification of keypoints between implementations.</div>
+            </div>
+            <span class="btn btn-secondary">Run</span>
+        </a>
+
+        <a href="unit-test-detect-compute.html" class="test-item">
+            <div>
+                <div class="test-name">Detect & Compute Unit Test</div>
+                <div class="test-desc">Verifies that detection and descriptor computation work correctly in a single
+                    pass.</div>
+            </div>
+            <span class="btn btn-secondary">Run</span>
+        </a>
+
+        <a href="benchmark_pool.html" class="test-item">
+            <div>
+                <div class="test-name">Texture Pool Benchmark</div>
+                <div class="test-desc">Measure speed gains from enabling the GPU Texture Pool.</div>
+            </div>
+            <span class="btn btn-secondary">Run</span>
+        </a>
+
+        <a href="benchmark_quantization.html" class="test-item">
+            <div>
+                <div class="test-name">Quantization Benchmark</div>
+                <div class="test-desc">Accuracy vs speed trade-offs for 8-bit quantized descriptors.</div>
+            </div>
+            <span class="btn btn-secondary">Run</span>
+        </a>
+    </div>
+
+    <div style="margin-top: 40px;">
+        <a href="../index.html" class="btn btn-primary">Back to Home</a>
+    </div>
+</body>
+
+</html>

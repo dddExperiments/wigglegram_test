@@ -1,0 +1,44 @@
+body {
+    font-family: monospace;
+    padding: 20px;
+    overflow: auto;
+    /* Allow scrolling for tests */
+}
+
+.result {
+    margin: 10px 0;
+    padding: 10px;
+    background: #16213e;
+    border-radius: 5px;
+}
+
+.pass {
+    border-left: 4px solid #0f0;
+    color: #0f0;
+}
+
+.fail {
+    border-left: 4px solid #f00;
+    color: #f00;
+}
+
+.info {
+    border-left: 4px solid #0af;
+    color: #0af;
+}
+
+.log {
+    margin-bottom: 5px;
+}
+
+#log,
+#logs {
+    white-space: pre-wrap;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+canvas {
+    border: 1px solid #333;
+    margin: 5px;
+}

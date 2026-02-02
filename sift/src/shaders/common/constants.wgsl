@@ -1,0 +1,16 @@
+const PI: f32 = 3.141592653589793;
+const TWO_PI: f32 = 6.283185307179586;
+
+const SIGMA_BASE: f32 = 1.6;
+const SCALES_PER_OCTAVE: f32 = 3.0;
+
+const ORI_BINS: u32 = 36u;
+const ORI_PEAK_RATIO: f32 = 0.8;
+
+const DESC_DIM: u32 = 128u;
+const DESC_SUBGRID_SIZE: u32 = 4u;
+const DESC_BINS: u32 = 8u;
+const DESC_STEP_FACTOR: f32 = 0.75;
+const DESC_GAUSSIAN_WEIGHT_SIGMA_SQ: f32 = 32.0;
+
+const HIST_SCALE: f32 = 1000.0;

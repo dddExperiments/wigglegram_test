@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU SIFT Tracking Demo</title>
+    <link rel="stylesheet" href="../styles/common.css">
+    <link rel="stylesheet" href="../styles/demo.css">
+    <style>
+        body {
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            background: #0f1014;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">WebGPU SIFT - Object Tracking</div>
+
+    <div id="controls">
+        <div class="section-title">Controls</div>
+        <button id="btnStart" class="btn btn-primary">Start Camera</button>
+        <button id="btnPause" class="btn btn-secondary" disabled>Pause</button>
+        <div class="divider"></div>
+        <div id="status" style="position:static; padding:0; background:none; border:none; color: #acc;">Status:
+            Loading...</div>
+
+        <div class="divider"></div>
+        <div class="section-title">Settings</div>
+        <label class="checkbox-container">
+            <input type="checkbox" id="chkQuantize" checked>
+            <span class="checkbox-label">Quantize Descriptors</span>
+        </label>
+
+        <div class="divider"></div>
+        <div class="section-title">Stats</div>
+        <div style="font-size: 11px; display: grid; grid-template-columns: 1fr; gap: 4px;">
+            <div>Ref Feats: <span id="refFeats">0</span></div>
+            <div>Cam Feats: <span id="camFeats">0</span></div>
+            <div>Matches: <span id="matches">0</span></div>
+            <div>Inliers: <span id="inliers">0</span> <span style="color:#aaa;">(Homography)</span></div>
+            <div>Time: <span id="time">0</span> ms</div>
+        </div>
+    </div>
+
+    <div class="container" style="display:flex; gap:20px; justify-content:center; align-items:center; height:100vh;">
+        <div style="position: relative;">
+            <div
+                style="position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.6); padding:4px 8px; border-radius:4px; font-size:12px;">
+                Reference</div>
+            <canvas id="canvasRef"
+                style="border-radius:8px; box-shadow:0 5px 20px rgba(0,0,0,0.4); max-height: 80vh;"></canvas>
+        </div>
+        <div style="position: relative;">
+            <div
+                style="position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.6); padding:4px 8px; border-radius:4px; font-size:12px;">
+                WebGPU Tracking</div>
+            <canvas id="canvasCam"
+                style="border-radius:8px; box-shadow:0 5px 20px rgba(0,0,0,0.4); max-height: 80vh;"></canvas>
+        </div>
+    </div>
+
+    <script type="module">
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+        import { MatcherWebGPU } from '../src/matcher-webgpu.js';
+        import { HomographyMatrixRANSAC } from '../src/geometry/homography_matrix.js';
+
+        const btnStart = document.getElementById('btnStart');
+        const status = document.getElementById('status');
+        const canvasRef = document.getElementById('canvasRef');
+        const canvasCam = document.getElementById('canvasCam');
+        const ctxRef = canvasRef.getContext('2d');
+        const ctxCam = canvasCam.getContext('2d');
+
+        const video = document.createElement('video');
+        video.playsInline = true;
+
+        let refKeypoints = [];
+        let refDescriptors = []; // Array of descriptors
+        let refFlatDescriptors = null;
+        let refImage = null;
+
+        const chkQuantize = document.getElementById('chkQuantize');
+
+        let siftGPU = null;
+        let matcherGPU = null;
+        let isRunning = false;
+        let isPaused = false;
+        let lastH = null;
+
+        async function init() {
+            try {
+                const quantize = chkQuantize.checked;
+                // 1. Init WebGPU
+                status.textContent = "Initializing WebGPU...";
+                siftGPU = new SIFTWebGPUPacked({ quantizeDescriptors: quantize });
+                await siftGPU.init();
+                matcherGPU = new MatcherWebGPU(siftGPU.device);
+                await matcherGPU.init();
+
+                // 2. Load Reference Image
+                status.textContent = "Loading reference image...";
+                refImage = new Image();
+                refImage.src = '../public/testdata/book2.jpg';
+                await new Promise(resolve => refImage.onload = resolve);
+
+                canvasRef.width = refImage.width;
+                canvasRef.height = refImage.height;
+                ctxRef.drawImage(refImage, 0, 0);
+
+                // 3. Compute Reference SIFT (WebGPU)
+                status.textContent = "Computing Reference SIFT (WebGPU)...";
+
+                // Note: Image might need to be converted to bitmap for WebGPU
+                const refBitmap = await createImageBitmap(refImage);
+                // Use optimized detectAndCompute
+                refKeypoints = await siftGPU.detectAndCompute(refBitmap);
+                refBitmap.close();
+
+                refDescriptors = refKeypoints.map(kp => kp.descriptor);
+
+                // Flatten for GPU Matcher
+                const isQuant = siftGPU.options.quantizeDescriptors;
+                const ArrayType = isQuant ? Uint8Array : Float32Array;
+                refFlatDescriptors = new ArrayType(refDescriptors.length * 128);
+                for (let i = 0; i < refDescriptors.length; i++) refFlatDescriptors.set(refDescriptors[i], i * 128);
+
+                document.getElementById('refFeats').textContent = refKeypoints.length;
+                drawKeypoints(ctxRef, refKeypoints, 'cyan');
+
+                status.textContent = "Ready. Click Start.";
+            } catch (e) {
+                console.error(e);
+                status.textContent = "Error: " + e.message;
+            }
+        }
+
+        const btnPause = document.getElementById('btnPause');
+
+        btnStart.onclick = async () => {
+            if (isRunning) return;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+                video.srcObject = stream;
+                await video.play();
+
+                canvasCam.width = video.videoWidth;
+                canvasCam.height = video.videoHeight;
+                siftGPU.width = video.videoWidth;
+                siftGPU.height = video.videoHeight;
+
+                isRunning = true;
+                btnStart.disabled = true;
+                btnPause.disabled = false;
+                loop();
+            } catch (e) {
+                console.error(e);
+                alert("Camera error: " + e.message);
+            }
+        };
+
+        btnPause.onclick = () => {
+            isPaused = !isPaused;
+            btnPause.textContent = isPaused ? "Resume" : "Pause";
+        };
+
+        let isProcessing = false;
+
+        async function loop() {
+            if (!isRunning) return;
+            requestAnimationFrame(loop);
+
+            if (isPaused || isProcessing) return;
+
+            if (video.readyState >= 2) {
+                isProcessing = true;
+                try {
+                    const t0 = performance.now();
+
+                    // Draw Video
+                    // ctxCam.drawImage(video, 0, 0, canvasCam.width, canvasCam.height); // Drawn logic below
+
+                    // Draw Video
+                    ctxCam.drawImage(video, 0, 0, canvasCam.width, canvasCam.height);
+
+                    // Always draw cached H if exists
+                    if (lastH) {
+                        drawHomography(ctxCam, lastH, refImage.width, refImage.height);
+                    }
+
+                    // Run SIFT GPU
+                    const bitmap = await createImageBitmap(video);
+
+                    let camKeypoints = await siftGPU.detectAndCompute(bitmap);
+                    bitmap.close();
+
+                    const camDescriptors = camKeypoints.map(kp => kp.descriptor);
+                    document.getElementById('camFeats').textContent = camKeypoints.length;
+
+                    // Flatten descriptors for GPU input
+                    const flatten = (arr) => {
+                        const isQuant = siftGPU.options.quantizeDescriptors;
+                        const ArrayType = isQuant ? Uint8Array : Float32Array;
+                        const flat = new ArrayType(arr.length * 128);
+                        for (let i = 0; i < arr.length; i++) flat.set(arr[i], i * 128);
+                        return flat;
+                    };
+
+                    const camFlat = flatten(camDescriptors);
+
+                    // Use GPU Matcher
+                    const matches = await matcherGPU.matchDescriptors(refFlatDescriptors, camFlat, 0.75);
+                    document.getElementById('matches').textContent = matches.length;
+
+                    let inlierCount = 0;
+
+                    if (matches.length >= 4) {
+                        const srcPts = matches.map(m => [refKeypoints[m[0]].x, refKeypoints[m[0]].y]);
+                        const dstPts = matches.map(m => [camKeypoints[m[1]].x, camKeypoints[m[1]].y]);
+
+                        const result = HomographyMatrixRANSAC.estimatePixels(srcPts, dstPts, { threshold: 8.0, maxIterations: 50 });
+
+                        if (result.H) {
+                            inlierCount = result.inlierCount;
+                            // Cache good homography
+                            if (inlierCount > 10) { // Simple quality threshold
+                                lastH = result.H;
+                            }
+                        }
+                    }
+
+                    document.getElementById('inliers').textContent = inlierCount;
+                    document.getElementById('time').textContent = (performance.now() - t0).toFixed(1);
+                } finally {
+                    isProcessing = false;
+                }
+            }
+        }
+
+        function drawKeypoints(ctx, kps, color = 'lime') {
+            ctx.fillStyle = color;
+            for (let kp of kps) {
+                ctx.fillRect(kp.x - 1, kp.y - 1, 3, 3);
+            }
+        }
+
+        function drawHomography(ctx, H, w, h) {
+            function transform(x, y) {
+                const d = H[2][0] * x + H[2][1] * y + H[2][2];
+                return {
+                    x: (H[0][0] * x + H[0][1] * y + H[0][2]) / d,
+                    y: (H[1][0] * x + H[1][1] * y + H[1][2]) / d
+                };
+            }
+
+            const p0 = transform(0, 0);
+            const p1 = transform(w, 0);
+            const p2 = transform(w, h);
+            const p3 = transform(0, h);
+
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.lineTo(p3.x, p3.y);
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        chkQuantize.onchange = () => {
+            init();
+        };
+
+        init();
+    </script>
+</body>
+
+</html>

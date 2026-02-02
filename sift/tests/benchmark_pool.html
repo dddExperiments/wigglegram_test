@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Texture Pool Benchmark</title>
+    <link rel="stylesheet" href="../styles/common.css">
+    <link rel="stylesheet" href="../styles/demo.css">
+    <style>
+        body {
+            overflow: auto !important;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Texture Pool Benchmark</h1>
+        <p>Testing allocation overhead versus pooling for mixed resolution batches.</p>
+
+        <div class="controls">
+            <button id="runNormal" class="btn btn-secondary">Run Without Pool</button>
+            <button id="runPool" class="btn btn-primary">Run With Pool</button>
+        </div>
+
+        <div id="results" class="stats-panel" style="margin-top: 2rem;">
+            <div class="stat-item"><span class="label">Status:</span> <span id="status" class="value">Ready</span></div>
+            <div class="stat-item"><span class="label">Total Time:</span> <span id="total" class="value">-</span></div>
+            <div class="stat-item"><span class="label">Avg Upload (ms):</span> <span id="avgUpload"
+                    class="value">-</span></div>
+        </div>
+
+        <pre id="log"
+            style="background: #111; padding: 1rem; border-radius: 8px; margin-top: 1rem; color: #0f0; max-height: 400px; overflow-y: auto;"></pre>
+    </div>
+
+    <script type="module">
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+
+        const sift = new SIFTWebGPUPacked();
+        await sift.init();
+
+        const log = document.getElementById('log');
+        const print = (m) => { log.textContent += m + '\n'; log.scrollTop = log.scrollHeight; };
+
+        // Dummy bitmaps of varying sizes
+        const sizes = [
+            [1024, 768], [1920, 1080], [1280, 720], [800, 600],
+            [1024, 1024], [512, 512], [2048, 1536], [1600, 1200]
+        ];
+
+        async function createDummyBitmaps() {
+            const bitmaps = [];
+            for (const [w, h] of sizes) {
+                const canvas = new OffscreenCanvas(w, h);
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = `rgb(${Math.random() * 255},${Math.random() * 255},${Math.random() * 255})`;
+                ctx.fillRect(0, 0, w, h);
+                bitmaps.push(canvas.transferToImageBitmap());
+            }
+            return bitmaps;
+        }
+
+        const bitmaps = await createDummyBitmaps();
+
+        async function runTest(usePool) {
+            document.getElementById('status').textContent = 'Running...';
+            log.textContent = '';
+
+            if (usePool) sift.enableTexturePool(5);
+            else sift.texturePool = null;
+
+            const iterations = 50;
+            const t0 = performance.now();
+            let uploadTotal = 0;
+
+            for (let i = 0; i < iterations; i++) {
+                const bitmap = bitmaps[i % bitmaps.length];
+                const u0 = performance.now();
+                sift.uploadImageToTexture(bitmap);
+                uploadTotal += (performance.now() - u0);
+
+                if (i % 10 === 0) print(`Iteration ${i}...`);
+            }
+
+            const total = performance.now() - t0;
+            document.getElementById('total').textContent = `${total.toFixed(2)}ms`;
+            document.getElementById('avgUpload').textContent = `${(uploadTotal / iterations).toFixed(4)}ms`;
+            document.getElementById('status').textContent = 'Done';
+            print(`Test complete. Avg upload per image: ${(uploadTotal / iterations).toFixed(4)}ms`);
+        }
+
+        document.getElementById('runNormal').onclick = () => runTest(false);
+        document.getElementById('runPool').onclick = () => runTest(true);
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIFT Webcam</title>
+    <link rel="icon" href="../favicon.svg">
+    <link rel="stylesheet" href="../styles/common.css">
+    <link rel="stylesheet" href="../styles/demo.css">
+    <style>
+        body {
+            /* Override centering for full-screen layout if needed, or keep for simple demo */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">WebGPU SIFT - Webcam</div>
+    <div id="controls">
+        <div class="section-title">Camera</div>
+        <button id="btnStart" class="btn btn-primary">Start Camera</button>
+        <button id="btnPause" class="btn btn-secondary" disabled>Pause</button>
+
+        <div class="divider"></div>
+
+        <div class="section-title">Implementation</div>
+        <select id="selImpl">
+            <option value="cpu">CPU (Reference)</option>
+            <option value="gpu">WebGPU (Unpacked)</option>
+            <option value="packed" selected>WebGPU (Packed)</option>
+        </select>
+
+        <div class="divider"></div>
+        <div class="section-title">Settings</div>
+        <label class="checkbox-container">
+            <input type="checkbox" id="chkDescriptors" checked>
+            <span class="checkbox-label">Compute Descriptors</span>
+        </label>
+        <label class="checkbox-container">
+            <input type="checkbox" id="chkQuantize" checked>
+            <span class="checkbox-label">Quantize Descriptors</span>
+        </label>
+
+        <div class="divider"></div>
+        <div id="output" style="font-size: 11px; color: #aaa;">Status: Ready</div>
+    </div>
+
+    <div style="position: relative; margin-top: 20px;">
+        <video id="video" playsinline style="display:none;"></video>
+        <canvas id="canvas" style="border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);"></canvas>
+        <div id="status" style="top: auto; bottom: 10px; left: 10px; pointer-events: none;">
+            <div>FPS: <span id="fps">0</span> | Features: <span id="features">0</span></div>
+            <div class="divider"></div>
+            <div style="font-size: 11px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                <div>SIFT: <span id="time-sift">0</span> ms</div>
+                <div>Draw: <span id="time-draw">0</span> ms</div>
+                <div>Gray: <span id="time-gray">0</span> ms</div>
+                <div>Pyr: <span id="time-pyr">0</span> ms</div>
+                <div>Extr: <span id="time-extr">0</span> ms</div>
+                <div>Ori: <span id="time-ori">0</span> ms</div>
+                <div>Read: <span id="time-read">0</span> ms</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+        import { SIFTWebGPUDefault } from '../src/sift-webgpu-default.js';
+        import { SIFTCPU } from '../src/sift-cpu.js';
+
+        // ... (existing variable declarations)
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const btnStart = document.getElementById('btnStart');
+        const btnPause = document.getElementById('btnPause');
+        const selImpl = document.getElementById('selImpl');
+        const chkDescriptors = document.getElementById('chkDescriptors');
+        const chkQuantize = document.getElementById('chkQuantize');
+
+        let sift = null;
+        let isRunning = false;
+        let isPaused = false;
+        let isProcessing = false;
+        let frameCount = 0;
+        let lastTime = performance.now();
+
+        const IMPLS = {
+            'cpu': { name: "CPU", cls: SIFTCPU },
+            'gpu': { name: "WebGPU (Unpacked)", cls: SIFTWebGPUDefault },
+            'packed': { name: "WebGPU (Packed)", cls: SIFTWebGPUPacked }
+        };
+
+        // ... (createSift, helpers)
+
+        async function createSift(type) {
+            try {
+                isProcessing = true;
+                const Impl = IMPLS[type];
+                document.getElementById('output').textContent = `Initializing ${Impl.name}...`;
+
+                const quantize = chkQuantize.checked;
+                const newSift = new Impl.cls({
+                    pipelined: true,
+                    quantizeDescriptors: quantize
+                });
+                if (newSift.init) await newSift.init();
+
+                sift = newSift;
+                document.getElementById('output').textContent = `Ready: ${Impl.name}`;
+            } catch (e) {
+                console.error(e);
+                document.getElementById('output').textContent = "Error: " + e.message;
+            } finally {
+                isProcessing = false;
+            }
+        }
+
+        selImpl.onchange = () => { createSift(selImpl.value); }
+        chkQuantize.onchange = () => { createSift(selImpl.value); }
+        createSift('packed');
+
+        btnPause.onclick = () => {
+            isPaused = !isPaused;
+            btnPause.textContent = isPaused ? "Resume" : "Pause";
+        };
+
+        btnStart.onclick = async () => {
+            if (isRunning) return;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+                video.srcObject = stream;
+                await video.play();
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                isRunning = true;
+                btnStart.disabled = true;
+                btnPause.disabled = false;
+                loop();
+            } catch (e) {
+                console.error(e);
+                alert("Camera access denied or error: " + e.message);
+            }
+        };
+
+        async function loop() {
+            if (!isRunning) return;
+            requestAnimationFrame(loop);
+
+            if (isPaused) return;
+            if (isProcessing) return;
+
+            isProcessing = true;
+            try {
+                if (video.readyState >= 2) {
+                    const bitmap = await createImageBitmap(video);
+
+                    const t0 = performance.now();
+                    let keypoints;
+                    if (chkDescriptors.checked) {
+                        keypoints = await sift.detectAndCompute(bitmap);
+                    } else {
+                        keypoints = await sift.detectKeypoints(bitmap);
+                    }
+                    const t1 = performance.now();
+                    const siftTime = t1 - t0;
+
+                    document.getElementById('features').textContent = keypoints.length;
+                    document.getElementById('time-sift').textContent = siftTime.toFixed(1);
+
+                    if (sift.timings) {
+                        document.getElementById('time-gray').textContent = (sift.timings.grayscale || 0).toFixed(1);
+                        document.getElementById('time-pyr').textContent = (sift.timings.pyramid || 0).toFixed(1);
+                        document.getElementById('time-extr').textContent = (sift.timings.extrema || 0).toFixed(1);
+                        document.getElementById('time-ori').textContent = (sift.timings.orientation || 0).toFixed(1);
+                        document.getElementById('time-read').textContent = (sift.timings.readback || 0).toFixed(1);
+                    }
+
+                    const t2 = performance.now();
+                    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                    drawKeypoints(keypoints);
+                    const drawTime = performance.now() - t2;
+                    document.getElementById('time-draw').textContent = drawTime.toFixed(1);
+
+                    bitmap.close();
+                }
+            } catch (e) {
+                console.error("SIFT Error:", e);
+            } finally {
+                isProcessing = false;
+            }
+
+            frameCount++;
+            const now = performance.now();
+            if (now - lastTime >= 1000) {
+                document.getElementById('fps').textContent = frameCount;
+                frameCount = 0;
+                lastTime = now;
+            }
+        }
+
+        function drawKeypoints(keypoints) {
+            ctx.lineWidth = 1;
+
+            // Batch paths by color (octave)
+            const colors = ['#00ff00', '#ffff00', '#ffaa00', '#ff0000', '#ff00ff', '#00ffff', '#ffffff'];
+            const paths = colors.map(() => new Path2D());
+            const orientPaths = colors.map(() => new Path2D());
+
+            for (let i = 0; i < keypoints.length; i++) {
+                const kp = keypoints[i];
+                const x = kp.x;
+                const y = kp.y;
+                const r = kp.sigma * 2;
+                const oct = Math.floor(kp.octave);
+                const colorIdx = oct % colors.length;
+
+                // Circle
+                paths[colorIdx].moveTo(x + r, y);
+                paths[colorIdx].arc(x, y, r, 0, 2 * Math.PI);
+
+                // Orientation
+                const ang = kp.orientation;
+                orientPaths[colorIdx].moveTo(x, y);
+                orientPaths[colorIdx].lineTo(x + Math.cos(ang) * r, y + Math.sin(ang) * r);
+            }
+
+            // Draw batches
+            for (let i = 0; i < colors.length; i++) {
+                ctx.strokeStyle = colors[i];
+                ctx.stroke(paths[i]);
+                ctx.stroke(orientPaths[i]);
+            }
+        }
+
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>SIFT Unit Tests</title>
+    <link rel="stylesheet" href="../styles/test.css">
+</head>
+
+<body>
+    <h1>SIFT Unit Tests</h1>
+    <div id="logs"></div>
+
+    <script type="module">
+        import { SIFTCPU } from '../src/sift-cpu.js';
+        import { SIFTWebGPUDefault } from '../src/sift-webgpu-default.js';
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+
+        const output = document.getElementById('logs');
+        function log(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.textContent = msg;
+            output.appendChild(div);
+            if (type === 'fail') console.error(msg);
+            else console.log(msg);
+        }
+
+        async function runTests() {
+            try {
+                const imgUrl = '../public/testdata/b/P1170063.JPG'; // Use a real image
+                log("Loading resources...");
+
+                const img = new Image();
+                img.src = imgUrl;
+                await new Promise(r => img.onload = r);
+
+                const cpu = new SIFTCPU();
+                const gpuDefault = new SIFTWebGPUDefault();
+                const gpuPacked = new SIFTWebGPUPacked();
+
+                await gpuDefault.init();
+                await gpuPacked.init();
+                log("GPU instances initialized", "pass");
+
+                // Test 2: Run CPU (partial)
+                log("Running CPU SIFT (this may take a moment)...");
+                const cpuKps = await cpu.detectAndCompute(img);
+                log(`CPU found ${cpuKps.length} keypoints`, "pass");
+
+                // Test 3: Run GPU Default
+                log("Running GPU Default SIFT...");
+                const gpuDefKps = await gpuDefault.detectAndCompute(img);
+                log(`GPU Default found ${gpuDefKps.length} keypoints`, "pass");
+
+                // Test 4: Run GPU Packed
+                log("Running GPU Packed SIFT...");
+                const gpuPackedKps = await gpuPacked.detectAndCompute(img);
+                log(`GPU Packed found ${gpuPackedKps.length} keypoints`, "pass");
+
+                // Check dimensions after run
+                if (cpu.width !== gpuDefault.width || cpu.width !== gpuPacked.width) {
+                    throw new Error(`Width mismatch: CPU=${cpu.width} GPU=${gpuDefault.width}`);
+                }
+                log(`Image dimensions verified: ${cpu.width}x${cpu.height}`, "pass");
+
+                // Validation: Counts should be "similar" (exact match unlikely due to float precision)
+                // Actually, if implementation is identical, they should be very close.
+                const diffDef = Math.abs(cpuKps.length - gpuDefKps.length);
+                const diffPacked = Math.abs(cpuKps.length - gpuPackedKps.length);
+
+                if (diffDef > cpuKps.length * 0.2) { // Allow 20% variance
+                    log(`WARNING: GPU Default count significantly different from CPU (${diffDef})`, 'fail');
+                } else {
+                    log(`GPU Default count within tolerance`, 'pass');
+                }
+
+                if (diffPacked > cpuKps.length * 0.2) {
+                    log(`WARNING: GPU Packed count significantly different from CPU (${diffPacked})`, 'fail');
+                } else {
+                    log(`GPU Packed count within tolerance`, 'pass');
+                }
+
+                log("ALL TESTS COMPLETED");
+
+            } catch (e) {
+                log(`CRITICAL ERROR: ${e.message}`, 'fail');
+                console.error(e);
+            }
+        }
+
+        runTests();
+    </script>
+</body>
+
+</html>

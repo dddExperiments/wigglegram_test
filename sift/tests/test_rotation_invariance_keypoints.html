@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIFT Keypoint Rotation Debug (42°)</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #111;
+            color: #ccc;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        canvas {
+            border: 1px solid #444;
+            margin: 10px;
+            max-width: 100%;
+        }
+
+        #container {
+            position: relative;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            background: #222;
+            padding: 10px;
+            border-radius: 8px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+            background: #444;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        #log {
+            width: 800px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            background: #222;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .legend {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>SIFT Keypoint Rotation Debug (42°)</h1>
+
+    <div class="controls">
+        <button id="runBtn">Run Comparison</button>
+        <div class="legend">
+            <div><span class="dot" style="background:#0f0"></span>CPU (Ref)</div>
+            <div><span class="dot" style="background:#f00"></span>GPU Unpacked</div>
+            <div><span class="dot" style="background:#ff0"></span>Matches</div>
+        </div>
+    </div>
+
+    <div id="container">
+        <canvas id="debugCanvas"></canvas>
+    </div>
+
+    <div id="log">Ready.</div>
+
+    <script type="module">
+        import { SIFTWebGPUDefault } from '../src/sift-webgpu-default.js';
+        import { SIFTCPU } from '../src/sift-cpu.js';
+
+        const canvas = document.getElementById('debugCanvas');
+        const ctx = canvas.getContext('2d');
+        const logDiv = document.getElementById('log');
+        const runBtn = document.getElementById('runBtn');
+
+        function log(msg) {
+            logDiv.textContent += msg + '\n';
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(msg);
+        }
+
+        async function runTest() {
+            runBtn.disabled = true;
+            logDiv.textContent = 'Starting test...\n';
+
+            try {
+                // 1. Load Image
+                const img = new Image();
+                img.src = '../public/testdata/book2.jpg';
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                });
+
+                // 2. Prepare Rotated Image (42 deg)
+                const angle = 42;
+                const rad = angle * Math.PI / 180;
+
+                // Calculate bounding box
+                const w = img.width;
+                const h = img.height;
+                const uw = Math.abs(w * Math.cos(rad)) + Math.abs(h * Math.sin(rad));
+                const uh = Math.abs(h * Math.cos(rad)) + Math.abs(w * Math.sin(rad));
+
+                // Rotation Canvas
+                const rotCanvas = document.createElement('canvas');
+                rotCanvas.width = Math.ceil(uw);
+                rotCanvas.height = Math.ceil(uh);
+                const rCtx = rotCanvas.getContext('2d');
+
+                // Fill black (padding)
+                rCtx.fillStyle = '#000';
+                rCtx.fillRect(0, 0, rotCanvas.width, rotCanvas.height);
+
+                // Rotate and draw
+                rCtx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+                rCtx.rotate(rad);
+                rCtx.drawImage(img, -w / 2, -h / 2);
+
+                // Display rotated image
+                canvas.width = rotCanvas.width;
+                canvas.height = rotCanvas.height;
+                ctx.drawImage(rotCanvas, 0, 0);
+
+                log(`Image rotated by ${angle} degrees. Size: ${rotCanvas.width}x${rotCanvas.height}`);
+
+                // 3. Run CPU SIFT
+                log('Running CPU SIFT...');
+                const siftCpu = new SIFTCPU();
+                const cpuKps = await siftCpu.detectAndCompute(rotCanvas);
+                log(`CPU Keypoints: ${cpuKps.length}`);
+
+                // 4. Run GPU SIFT (Unpacked/Default)
+                log('Running GPU SIFT (Default/Unpacked)...');
+                const siftGpu = new SIFTWebGPUDefault();
+                await siftGpu.init();
+                // GPU needs bitmap
+                const bitmap = await createImageBitmap(rotCanvas);
+                const gpuKps = await siftGpu.detectAndCompute(bitmap);
+                bitmap.close();
+                log(`GPU Keypoints: ${gpuKps.length}`);
+
+                // 5. Compare and Visualize
+                visualizeComparison(cpuKps, gpuKps);
+
+            } catch (err) {
+                log(`Error: ${err.message}`);
+                console.error(err);
+            } finally {
+                runBtn.disabled = false;
+            }
+        }
+
+        function visualizeComparison(cpuKps, gpuKps) {
+            // Draw CPU keypoints (Green)
+            ctx.lineWidth = 1;
+
+            // Draw GPU keypoints (Red circles)
+            // Draw CPU keypoints (Green crosses)
+
+            // Find Matches (Nearest Neighbor Spatial)
+            let matches = 0;
+            let totalOriErr = 0;
+            let matchedOriCount = 0;
+
+            // Thresholds
+            const distThresh = 1.0; // pixels
+
+            // For drawing
+            const gpuMatched = new Set();
+
+            log(`Comparing keypoints (Tolerance: ${distThresh}px)...`);
+            let matchLogCount = 0;
+            let errorLogCount = 0;
+
+            cpuKps.forEach(cpuKp => {
+                let bestGpu = null;
+                let minDist = Infinity;
+                let bestIdx = -1;
+
+                gpuKps.forEach((gpuKp, idx) => {
+                    const dx = cpuKp.x - gpuKp.x;
+                    const dy = cpuKp.y - gpuKp.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    // Filter matching scale/octave roughly?
+                    // Let's just do pure spatial for now
+                    if (dist < minDist) {
+                        minDist = dist;
+                        bestGpu = gpuKp;
+                        bestIdx = idx;
+                    }
+                });
+
+                if (minDist < distThresh) {
+                    matches++;
+                    gpuMatched.add(bestIdx);
+
+                    // Orientation diff
+                    let oriDiff = Math.abs(cpuKp.orientation - bestGpu.orientation);
+                    if (oriDiff > Math.PI) oriDiff = 2 * Math.PI - oriDiff;
+                    const degDiff = oriDiff * 180 / Math.PI;
+
+                    const cpuDeg = cpuKp.orientation * 180 / Math.PI;
+                    const gpuDeg = bestGpu.orientation * 180 / Math.PI;
+
+                    if (matchLogCount < 5) {
+                        log(`Match #${matches} (Good): Diff ${degDiff.toFixed(1)}°`);
+                        matchLogCount++;
+                    } else if (degDiff > 10.0 && errorLogCount < 10) {
+                        log(`Match #${matches} (BAD):`);
+                        log(`  Pos: (${cpuKp.x.toFixed(1)}, ${cpuKp.y.toFixed(1)}) O:${cpuKp.octave} S:${cpuKp.scale}`);
+                        // log(`  Pos: (${gpuKp.x.toFixed(1)}, ${gpuKp.y.toFixed(1)}) O:${gpuKp.octave} S:${gpuKp.scale}`);
+                        log(`  CPU: ${cpuDeg.toFixed(1)}°  GPU: ${gpuDeg.toFixed(1)}°`);
+                        log(`  Diff: ${degDiff.toFixed(1)}°`);
+                        errorLogCount++;
+                    }
+
+                    totalOriErr += degDiff;
+                    matchedOriCount++;
+
+                    // Draw blended marker
+                    drawKeypoint(cpuKp, '#0f0', false); // Green Cross for CPU
+                } else {
+                    // CPU Unmatched
+                    drawKeypoint(cpuKp, 'rgba(0, 255, 0, 0.3)', false);
+                }
+            });
+
+            // Draw unmatched GPU keypoints
+            gpuKps.forEach((gpuKp, idx) => {
+                if (gpuMatched.has(idx)) {
+                    drawKeypoint(gpuKp, 'rgba(255, 0, 0, 0.8)', true);
+                } else {
+                    drawKeypoint(gpuKp, 'rgba(255, 0, 0, 0.3)', true);
+                }
+            });
+
+            log(`Matches found: ${matches}/${cpuKps.length} (${(matches / cpuKps.length * 100).toFixed(1)}%)`);
+            if (matchedOriCount > 0) {
+                log(`Avg Orientation Error: ${(totalOriErr / matchedOriCount).toFixed(2)} degrees`);
+            }
+        }
+
+        function drawKeypoint(kp, color, isCircle) {
+            ctx.strokeStyle = color;
+            ctx.beginPath();
+            if (isCircle) {
+                const r = Math.max(2, kp.sigma);
+                ctx.arc(kp.x, kp.y, r, 0, Math.PI * 2);
+
+                // Orientation
+                const ex = kp.x + Math.cos(kp.orientation) * r;
+                const ey = kp.y + Math.sin(kp.orientation) * r;
+                ctx.moveTo(kp.x, kp.y);
+                ctx.lineTo(ex, ey);
+            } else {
+                const s = 3;
+                ctx.moveTo(kp.x - s, kp.y);
+                ctx.lineTo(kp.x + s, kp.y);
+                ctx.moveTo(kp.x, kp.y - s);
+                ctx.lineTo(kp.x, kp.y + s);
+            }
+            ctx.stroke();
+        }
+
+        runBtn.addEventListener('click', runTest);
+    </script>
+</body>
+
+</html>

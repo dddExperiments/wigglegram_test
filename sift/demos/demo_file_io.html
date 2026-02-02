@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIFT File I/O</title>
+    <link rel="icon" href="../favicon.svg">
+    <link rel="stylesheet" href="../styles/common.css">
+    <link rel="stylesheet" href="../styles/demo.css">
+    <style>
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .drop-zone {
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 3rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.03);
+            cursor: pointer;
+        }
+
+        .drop-zone:hover {
+            border-color: var(--accent-color);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .file-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .file-card img {
+            width: 100%;
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+        }
+
+        .controls {
+            margin-top: 2rem;
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>File I/O & High-Res Demo</h1>
+        <p>Upload a large image to see automatic downsampling, or save/load features in various formats.</p>
+
+        <div id="dropZone" class="drop-zone">
+            <p>Drop image here or click to upload</p>
+            <input type="file" id="fileInput" hidden accept="image/*">
+        </div>
+
+        <div class="controls" id="featureControls" style="display: none;">
+            <button id="saveBinary" class="btn btn-primary">Save Binary (.wsft)</button>
+            <button id="saveSift" class="btn btn-secondary">Save VisualSFM (.sift)</button>
+            <div style="width: 100px;"></div>
+            <label class="btn btn-outline" style="cursor: pointer;">
+                Load Features
+                <input type="file" id="loadInput" hidden accept=".sift,.wsft,.txt">
+            </label>
+        </div>
+
+        <div id="status" class="stats-panel" style="margin-top: 2rem; display: none;">
+            <div class="stat-item"><span class="label">Features:</span> <span id="featCount" class="value">-</span>
+            </div>
+            <div class="stat-item"><span class="label">Original Size:</span> <span id="origSize" class="value">-</span>
+            </div>
+            <div class="stat-item"><span class="label">Processed Size:</span> <span id="procSize" class="value">-</span>
+            </div>
+            <div class="stat-item"><span class="label">Total Time:</span> <span id="totalTime" class="value">-</span>
+            </div>
+        </div>
+
+        <div class="preview-grid" id="previewGrid"></div>
+    </div>
+
+    <script type="module">
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+        import { downloadAsBinary, downloadAsVisualSFM, loadFeatures } from '../src/io/feature-io.js';
+
+        const sift = new SIFTWebGPUPacked({ maxImageDimension: 3000 });
+        let currentKeypoints = [];
+        let currentImage = null;
+
+        await sift.init();
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const previewGrid = document.getElementById('previewGrid');
+        const featControls = document.getElementById('featureControls');
+        const statusPanel = document.getElementById('status');
+
+        dropZone.onclick = () => fileInput.click();
+        fileInput.onchange = (e) => handleFile(e.target.files[0]);
+
+        async function handleFile(file) {
+            if (!file) return;
+
+            statusPanel.style.display = 'grid';
+            document.getElementById('featCount').textContent = 'Processing...';
+
+            const url = URL.createObjectURL(file);
+            const t0 = performance.now();
+            currentKeypoints = await sift.detectAndCompute(url);
+            const total = performance.now() - t0;
+
+            const timings = sift.getTimings();
+
+            document.getElementById('featCount').textContent = currentKeypoints.length;
+            document.getElementById('origSize').textContent = `${sift.originalWidth}x${sift.originalHeight}`;
+            document.getElementById('procSize').textContent = `${sift.width}x${sift.height}`;
+            document.getElementById('totalTime').textContent = `${total.toFixed(1)}ms`;
+
+            featControls.style.display = 'flex';
+
+            // Add preview
+            previewGrid.innerHTML = '';
+            const card = document.createElement('div');
+            card.className = 'file-card';
+            const img = document.createElement('img');
+            img.src = url;
+            card.appendChild(img);
+            card.innerHTML += `<p>${file.name}</p><small>${(file.size / 1024 / 1024).toFixed(2)} MB</small>`;
+            previewGrid.appendChild(card);
+
+            currentImage = file.name;
+        }
+
+        document.getElementById('saveBinary').onclick = () => {
+            if (!currentKeypoints.length) return;
+            downloadAsBinary(currentKeypoints, currentImage.split('.')[0] + '.wsft', sift.originalWidth, sift.originalHeight);
+        };
+
+        document.getElementById('saveSift').onclick = () => {
+            if (!currentKeypoints.length) return;
+            downloadAsVisualSFM(currentKeypoints, currentImage.split('.')[0] + '.sift');
+        };
+
+        document.getElementById('loadInput').onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                const results = await loadFeatures(file);
+                console.log("Loaded features:", results);
+                alert(`Loaded ${results.keypoints.length} features from ${file.name}\n` +
+                    (results.width ? `Original image size: ${results.width}x${results.height}` : ""));
+            } catch (err) {
+                alert("Error loading features: " + err.message);
+            }
+        };
+    </script>
+</body>
+
+</html>

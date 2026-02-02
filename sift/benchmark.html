@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>SIFT Benchmark</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #222;
+            color: #eee;
+            padding: 20px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        th,
+        td {
+            border: 1px solid #444;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background: #333;
+        }
+
+        .bar {
+            height: 10px;
+            background: #0f0;
+            display: inline-block;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>SIFT: Performance Benchmark</h1>
+    <div>
+        <button onclick="runBenchmark()">Run Benchmark</button>
+        <span id="status">Ready</span>
+    </div>
+
+    <table id="results">
+        <thead>
+            <tr>
+                <th>Implementation</th>
+                <th>Resolution</th>
+                <th>Features</th>
+                <th>Total (ms)</th>
+                <th>Grayscale</th>
+                <th>Pyramid</th>
+                <th>Extrema</th>
+                <th>Orientation</th>
+                <th>Desc</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <script type="module">
+        import { SIFTCPU } from './src/sift-cpu.js';
+        import { SIFTWebGPUDefault } from './src/sift-webgpu-default.js';
+        import { SIFTWebGPUPacked } from './src/sift-webgpu-packed.js';
+
+        async function runBenchmark() {
+            const status = document.getElementById('status');
+            const tbody = document.querySelector('#results tbody');
+            tbody.innerHTML = '';
+
+            const images = [
+                './demos/testdata/book2.jpg' // Use a real image
+            ];
+
+            const impls = [
+                { name: 'CPU (Reference)', cls: SIFTCPU },
+                { name: 'WebGPU (Unpacked)', cls: SIFTWebGPUDefault },
+                { name: 'WebGPU (Packed)', cls: SIFTWebGPUPacked }
+            ];
+
+            status.textContent = "Running...";
+
+            // Pre-load image
+            const imgEl = new Image();
+            imgEl.src = images[0];
+            await new Promise(r => imgEl.onload = r);
+            const imgBitmap = await createImageBitmap(imgEl);
+
+            for (const imgUrl of images) { // Loop kept for structure but we use pre-loaded
+                // Initialize implementations
+                for (const impl of impls) {
+                    try {
+                        const instance = new impl.cls();
+                        if (instance.init) await instance.init();
+
+                        // Warmup
+                        const header = `[${impl.name}]`;
+                        console.log(header, "Warmup...");
+                        for (let i = 0; i < 2; i++) await instance.detectAndCompute(imgBitmap);
+
+                        // Timed run
+                        let totalStats = { total: 0, grayscale: 0, pyramid: 0, extrema: 0, orientation: 0, descriptors: 0 };
+                        let count = 0;
+                        const valid = 20;
+
+                        console.log(header, "Run...");
+                        for (let i = 0; i < valid; i++) {
+                            const t0 = performance.now();
+                            await instance.detectAndCompute(imgBitmap);
+                            const t1 = performance.now();
+                            const t = instance.getTimings();
+                            totalStats.total += (t1 - t0);
+                            totalStats.grayscale += t.grayscale || 0;
+                            totalStats.pyramid += (t.gaussian || 0) + (t.dog || 0) + (t.pyramid || 0);
+                            totalStats.extrema += t.extrema || 0;
+                            totalStats.orientation += t.orientation || 0;
+                            totalStats.descriptors += t.descriptors || 0;
+
+                            status.textContent = `${impl.name}: ${i + 1}/${valid}`;
+                        }
+
+                        count = valid;
+
+                        const row = tbody.insertRow();
+                        row.insertCell().textContent = impl.name;
+                        row.insertCell().textContent = `${instance.width}x${instance.height}`;
+                        row.insertCell().textContent = instance.getFeatureCount();
+                        row.insertCell().textContent = (totalStats.total / count).toFixed(2);
+                        row.insertCell().textContent = (totalStats.grayscale / count).toFixed(2);
+                        row.insertCell().textContent = (totalStats.pyramid / count).toFixed(2);
+                        row.insertCell().textContent = (totalStats.extrema / count).toFixed(2);
+                        row.insertCell().textContent = (totalStats.orientation / count).toFixed(2);
+                        row.insertCell().textContent = (totalStats.descriptors / count).toFixed(2);
+
+                    } catch (e) {
+                        console.error(e);
+                        const row = tbody.insertRow();
+                        row.insertCell().textContent = impl.name + " (FAILED)";
+                        row.insertCell().textContent = e.message;
+                    }
+                }
+            }
+            status.textContent = "Done";
+        }
+
+        window.runBenchmark = runBenchmark;
+    </script>
+</body>
+
+</html>

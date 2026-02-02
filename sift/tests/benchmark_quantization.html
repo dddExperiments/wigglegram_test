@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>WebSiftGPU - Quantization Benchmark</title>
+    <link rel="stylesheet" href="../styles/common.css">
+    <link rel="stylesheet" href="../styles/demo.css">
+    <style>
+        body {
+            overflow: auto !important;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Descriptor Quantization Benchmark</h1>
+        <p>Comparing Float32 vs Uint8 (Quantized) descriptors for performance and matching accuracy.</p>
+
+        <div class="controls">
+            <button id="runFloat" class="btn btn-secondary">Run Float32</button>
+            <button id="runQuant" class="btn btn-primary">Run Quantized (Uint8)</button>
+        </div>
+
+        <div id="results" class="stats-panel" style="margin-top: 2rem;">
+            <div class="stat-item"><span class="label">Features:</span> <span id="featCount" class="value">-</span>
+            </div>
+            <div class="stat-item"><span class="label">Readback Time:</span> <span id="readbackTime"
+                    class="value">-</span></div>
+            <div class="stat-item"><span class="label">Matching Time:</span> <span id="matchTime" class="value">-</span>
+            </div>
+            <div class="stat-item"><span class="label">Matches Count:</span> <span id="matchCount"
+                    class="value">-</span></div>
+        </div>
+
+        <pre id="log"
+            style="background: #111; padding: 1rem; border-radius: 8px; margin-top: 1rem; color: #0f0; max-height: 400px; overflow-y: auto;"></pre>
+    </div>
+
+    <script type="module">
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+        import { MatcherWebGPU } from '../src/matcher-webgpu.js';
+
+        const log = document.getElementById('log');
+        const print = (m) => { log.textContent += m + '\n'; log.scrollTop = log.scrollHeight; };
+
+        async function runTest(quantize) {
+            print(`Initializing SIFT (Quantized: ${quantize})...`);
+            const sift = new SIFTWebGPUPacked({ quantizeDescriptors: quantize, maxKeypoints: 20000 });
+            await sift.init();
+
+            const matcher = new MatcherWebGPU(sift.device);
+            await matcher.init();
+
+            const url = 'https://picsum.photos/seed/sift1/1920/1080';
+            const url2 = 'https://picsum.photos/seed/sift1/1920/1080'; // Same image for consistency check
+
+            print("Detecting and Computing Descriptors...");
+            const t0 = performance.now();
+            const feats = await sift.detectAndCompute(url);
+            const descriptors = await sift.awaitReadbackDescriptors(true, true);
+            const readTime = performance.now() - t0;
+
+            document.getElementById('featCount').textContent = feats.length;
+            document.getElementById('readbackTime').textContent = `${readTime.toFixed(1)}ms`;
+            print(`Detected ${feats.length} features. Readback took ${readTime.toFixed(1)}ms`);
+
+            print("Matching with itself...");
+            const t1 = performance.now();
+            const matches = await matcher.match(descriptors, descriptors);
+            const matchTime = performance.now() - t1;
+
+            document.getElementById('matchTime').textContent = `${matchTime.toFixed(1)}ms`;
+            document.getElementById('matchCount').textContent = matches.length;
+            print(`Matched ${matches.length} points. Matching took ${matchTime.toFixed(1)}ms`);
+
+            if (matches.length === feats.length) {
+                print("SUCCESS: Perfect self-match.");
+            } else {
+                print(`WARNING: Only ${matches.length}/${feats.length} matched.`);
+            }
+        }
+
+        document.getElementById('runFloat').onclick = () => runTest(false);
+        document.getElementById('runQuant').onclick = () => runTest(true);
+    </script>
+</body>
+
+</html>

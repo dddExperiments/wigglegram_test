@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>SIFT DetectAndCompute Test</title>
+    <link rel="stylesheet" href="../styles/test.css">
+</head>
+
+<body>
+    <h1>SIFT DetectAndCompute Verification</h1>
+    <div id="logs"></div>
+
+    <script type="module">
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+
+        const logs = document.getElementById('logs');
+        function log(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.textContent = msg;
+            logs.appendChild(div);
+            if (type === 'fail') console.error(msg);
+            else console.log(msg);
+        }
+
+        async function runTest() {
+            try {
+                const imgUrl = '../public/testdata/b/P1170063.JPG';
+                const gpu = new SIFTWebGPUPacked({ pipelined: false }); // Use sync for stability in test
+                await gpu.init();
+                log("GPU Initialized", "pass");
+
+                // Load Image
+                const img = new Image();
+                img.src = imgUrl;
+                await new Promise(r => img.onload = r);
+                const bitmap = await createImageBitmap(img);
+
+                // Run 1: Separate Steps
+                log("Running separate steps (detectKeypoints + computeDescriptors)...");
+                const kps1 = await gpu.detectKeypoints(bitmap);
+                const kpsWithDesc1 = await gpu.computeDescriptors(kps1);
+                log(`Separate: ${kpsWithDesc1.length} keypoints`, "pass");
+
+                // Run 2: Combined Step
+                log("Running combined step (detectAndCompute)...");
+                const kps2 = await gpu.detectAndCompute(bitmap);
+                log(`Combined: ${kps2.length} keypoints`, "pass");
+
+                // Comparison
+                if (kps1.length !== kps2.length) {
+                    log(`Count Mismatch: Separate=${kps1.length}, Combined=${kps2.length}`, "fail");
+                } else {
+                    log("Keypoint count matches", "pass");
+
+                    // Check Descriptors
+                    let diffs = 0;
+                    for (let i = 0; i < kps1.length; i++) {
+                        const d1 = kps1[i].descriptor;
+                        const d2 = kps2[i].descriptor;
+                        if (!d1 || !d2) {
+                            log(`Missing descriptor at index ${i}`, "fail");
+                            diffs++;
+                            break;
+                        }
+                        // Check first few values
+                        for (let j = 0; j < 10; j++) {
+                            if (Math.abs(d1[j] - d2[j]) > 0.001) {
+                                diffs++;
+                                break;
+                            }
+                        }
+                    }
+                    if (diffs === 0) {
+                        log("Descriptors match exactly", "pass");
+                    } else {
+                        log(`found ${diffs} descriptor mismatches`, "fail");
+                    }
+                }
+
+            } catch (e) {
+                log(`Error: ${e.message}`, "fail");
+                console.error(e);
+            }
+        }
+
+        runTest();
+    </script>
+</body>
+
+</html>

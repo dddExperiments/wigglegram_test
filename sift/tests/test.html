@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>SIFT WebGPU Unit Test</title>
+    <link rel="stylesheet" href="../styles/test.css">
+</head>
+
+<body>
+    <h1>SIFT WebGPU Unit Test</h1>
+    <button id="runBtn">Run Tests</button>
+    <div id="log"></div>
+    <div id="canvases"></div>
+
+    <script type="module">
+        import { SIFT } from '../src/sift.js';
+        import { SIFTWebGPUDefault as SIFTWebGPU } from '../src/sift-webgpu-default.js';
+
+        const log = document.getElementById('log');
+        const canvasDiv = document.getElementById('canvases');
+
+        function addResult(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.textContent = msg;
+            log.appendChild(div);
+            console.log(`[${type.toUpperCase()}] ${msg}`);
+        }
+
+        function createTestImage(size = 256) {
+            // Create a test image with features (circles, gradients, edges)
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            // Background gradient
+            const grad = ctx.createLinearGradient(0, 0, size, size);
+            grad.addColorStop(0, '#222');
+            grad.addColorStop(1, '#888');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, size, size);
+
+            // Draw some circles (feature points)
+            ctx.fillStyle = '#fff';
+            for (let i = 0; i < 20; i++) {
+                const x = 30 + Math.random() * (size - 60);
+                const y = 30 + Math.random() * (size - 60);
+                const r = 5 + Math.random() * 15;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            // Draw some rectangles
+            ctx.fillStyle = '#aaa';
+            for (let i = 0; i < 5; i++) {
+                ctx.fillRect(
+                    Math.random() * size * 0.8,
+                    Math.random() * size * 0.8,
+                    20 + Math.random() * 40,
+                    20 + Math.random() * 40
+                );
+            }
+
+            // Create an image from canvas
+            const img = new Image();
+            img.width = size;
+            img.height = size;
+            img.src = canvas.toDataURL();
+
+            // Display it
+            canvasDiv.appendChild(canvas);
+
+            return { img, canvas };
+        }
+
+        async function runTests() {
+            log.innerHTML = '';
+            canvasDiv.innerHTML = '';
+            addResult('Starting SIFT Unit Tests...', 'info');
+
+            try {
+                // Test 1: WebGPU Initialization
+                addResult('Test 1: WebGPU Initialization', 'info');
+                const siftGPU = new SIFTWebGPU();
+                await siftGPU.init();
+                addResult('✓ WebGPU SIFT initialized successfully', 'pass');
+
+                // Test 2: Create test image
+                addResult('Test 2: Creating test image...', 'info');
+                const { img, canvas } = createTestImage(256);
+                addResult(`✓ Test image created: ${canvas.width}x${canvas.height}`, 'pass');
+
+                // Wait for image to be ready
+                await new Promise(r => setTimeout(r, 100));
+
+                // Test 3: WebGPU SIFT Feature Detection
+                addResult('Test 3: WebGPU SIFT Feature Detection...', 'info');
+                try {
+                    const gpuStart = performance.now();
+
+                    // Convert canvas to ImageBitmap for WebGPU
+                    const imageBitmap = await createImageBitmap(canvas);
+                    addResult('  - ImageBitmap created', 'info');
+
+                    const result = await siftGPU.detectAndCompute(imageBitmap);
+                    addResult(`  - SIFT pipeline complete: ${result.length} keypoints`, 'info');
+
+                    const gpuTime = performance.now() - gpuStart;
+
+                    const gpuKeypoints = result.length;
+                    if (gpuKeypoints > 0) {
+                        addResult(`✓ WebGPU SIFT: ${gpuKeypoints} keypoints in ${gpuTime.toFixed(1)}ms`, 'pass');
+                    } else {
+                        addResult(`✗ WebGPU SIFT: 0 keypoints (check console for errors)`, 'fail');
+                    }
+                } catch (gpuError) {
+                    addResult(`✗ WebGPU SIFT failed: ${gpuError.message}`, 'fail');
+                    console.error(gpuError);
+                }
+
+                addResult('\n=== Tests Complete ===', 'info');
+                addResult('Check browser console (F12) for detailed WebGPU errors', 'info');
+
+            } catch (error) {
+                addResult(`✗ Test failed: ${error.message}`, 'fail');
+                console.error(error);
+            }
+        }
+
+        document.getElementById('runBtn').onclick = runTests;
+
+        // Auto-run on load
+        runTests();
+    </script>
+</body>
+
+</html>

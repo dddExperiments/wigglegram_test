@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIFT Rotation Invariance Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #111;
+            color: #ccc;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        canvas {
+            border: 1px solid #444;
+            margin: 10px;
+        }
+
+        #chart-container {
+            width: 800px;
+            height: 400px;
+            background: #222;
+            padding: 10px;
+        }
+
+        #status {
+            margin: 10px;
+            font-family: monospace;
+            white-space: pre;
+        }
+
+        .row {
+            display: flex;
+            flex-direction: row;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            background: #222;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        select {
+            padding: 5px;
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>SIFT Rotation Invariance Test</h1>
+
+    <div class="controls">
+        <label>
+            Implementation:
+            <select id="modeSelect">
+                <option value="gpu-packed">WebGPU Packed (Keypoints + Descriptors)</option>
+                <option value="gpu-default">WebGPU Default (Unpacked)</option>
+                <option value="cpu">CPU (Reference)</option>
+            </select>
+        </label>
+        <button id="runBtn">Run Test</button>
+        <button id="pauseBtn" disabled>Pause</button>
+    </div>
+
+    <div id="status">Ready</div>
+
+    <div id="chart-container">
+        <canvas id="chart"></canvas>
+    </div>
+
+    <div class="row">
+        <div>
+            <h3>Reference</h3>
+            <canvas id="canvasRef"></canvas>
+        </div>
+        <div>
+            <h3>Rotated (Debug)</h3>
+            <canvas id="canvasRot"></canvas>
+        </div>
+    </div>
+
+    <script type="module">
+        import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
+        import { SIFTWebGPUDefault } from '../src/sift-webgpu-default.js';
+        import { SIFTCPU } from '../src/sift-cpu.js';
+        import { MatcherWebGPU } from '../src/matcher-webgpu.js';
+        import { MatcherCPU } from '../src/matcher-cpu.js';
+        import { HomographyMatrixRANSAC } from '../src/geometry/homography_matrix.js';
+
+        const status = document.getElementById('status');
+        const canvasRef = document.getElementById('canvasRef');
+        const canvasRot = document.getElementById('canvasRot');
+        const ctxRef = canvasRef.getContext('2d');
+        const ctxRot = canvasRot.getContext('2d');
+        const modeSelect = document.getElementById('modeSelect');
+        const runBtn = document.getElementById('runBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+
+        let sift, matcher;
+        let chart;
+        let isRunning = false;
+        let isPaused = false;
+
+        pauseBtn.addEventListener('click', () => {
+            if (!isRunning) return;
+            isPaused = !isPaused;
+            pauseBtn.textContent = isPaused ? "Resume" : "Pause";
+        });
+
+        // Flatten helper
+        const flatten = (arr) => {
+            if (arr.length === 0) return new Float32Array(0);
+            const flat = new Float32Array(arr.length * 128);
+            for (let i = 0; i < arr.length; i++) flat.set(arr[i], i * 128);
+            return flat;
+        };
+
+
+
+        async function initChart() {
+            const ctxChart = document.getElementById('chart').getContext('2d');
+            chart = new Chart(ctxChart, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Inliers',
+                        data: [],
+                        borderColor: 'cyan',
+                        backgroundColor: 'rgba(0, 255, 255, 0.2)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'Rotation Angle (deg)' },
+                            grid: { color: '#333' }
+                        },
+                        y: {
+                            title: { display: true, text: 'Inliers Count' },
+                            grid: { color: '#333' },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        async function runTest() {
+            if (isRunning) return;
+            isRunning = true;
+            runBtn.disabled = true;
+            modeSelect.disabled = true;
+            pauseBtn.disabled = false;
+            isPaused = false;
+            pauseBtn.textContent = "Pause";
+
+            try {
+                // Clear chart
+                chart.data.labels = [];
+                chart.data.datasets[0].data = [];
+                chart.update();
+
+                const mode = modeSelect.value;
+                status.textContent = `Initializing ${mode}...`;
+
+                // Init SIFT
+                if (mode === 'gpu-packed') {
+                    sift = new SIFTWebGPUPacked();
+                    await sift.init();
+                    matcher = new MatcherWebGPU(sift.device);
+                    await matcher.init();
+                } else if (mode === 'gpu-default') {
+                    sift = new SIFTWebGPUDefault();
+                    await sift.init();
+                    matcher = new MatcherWebGPU(sift.device);
+                    await matcher.init();
+
+                } else {
+                    sift = new SIFTCPU();
+                    // CPU SIFT doesn't need async init, but consistency
+                    matcher = new MatcherCPU(); // Use CPU matcher instance
+                }
+
+                // Load Image
+                status.textContent = "Loading reference image...";
+                const img = new Image();
+                img.src = '../public/testdata/book2.jpg';
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                });
+
+                // Setup Canvases
+                const w = img.width;
+                const h = img.height;
+                canvasRef.width = w;
+                canvasRef.height = h;
+                ctxRef.drawImage(img, 0, 0);
+
+                // Offscreen canvas for rotation
+                const diag = Math.ceil(Math.sqrt(w * w + h * h));
+                canvasRot.width = diag;
+                canvasRot.height = diag;
+
+                // 1. Reference SIFT
+                status.textContent = "Computing Reference SIFT...";
+                let refKps;
+                if (mode.startsWith('gpu')) {
+                    const refBitmap = await createImageBitmap(img);
+                    refKps = await sift.detectAndCompute(refBitmap);
+                    refBitmap.close();
+                } else {
+                    refKps = await sift.detectAndCompute(img);
+                }
+
+                const refDescs = refKps.map(k => k.descriptor);
+                const refFlat = flatten(refDescs);
+
+                status.textContent = `Reference: ${refKps.length} keypoints.\nStarting rotation test...`;
+
+                const angles = [];
+                for (let ang = -180; ang <= 180; ang += 5) {
+                    angles.push(ang);
+                }
+
+                // Loop
+                for (let angle of angles) {
+                    // Check Pause
+                    while (isPaused) {
+                        await new Promise(r => setTimeout(r, 100));
+                    }
+
+                    status.textContent = `Testing Angle: ${angle}°`;
+
+                    // Rotate Image
+                    ctxRot.fillStyle = 'black';
+                    ctxRot.fillRect(0, 0, diag, diag);
+                    ctxRot.save();
+                    ctxRot.translate(diag / 2, diag / 2);
+                    ctxRot.rotate(angle * Math.PI / 180);
+                    ctxRot.drawImage(img, -w / 2, -h / 2);
+                    ctxRot.restore();
+
+                    // SIFT on Rotated
+                    let rotKps;
+                    if (mode.startsWith('gpu')) {
+                        const rotBitmap = await createImageBitmap(canvasRot);
+                        rotKps = await sift.detectAndCompute(rotBitmap);
+                        rotBitmap.close();
+                    } else {
+                        rotKps = await sift.detectAndCompute(canvasRot);
+                    }
+
+                    const rotDescs = rotKps.map(k => k.descriptor);
+                    const rotFlat = flatten(rotDescs);
+
+                    // Match
+                    let inliers = 0;
+                    if (rotKps.length > 0 && refKps.length > 0) {
+                        let matches;
+                        if (mode.startsWith('gpu')) {
+                            matches = await matcher.match(refFlat, rotFlat, 0.75); // Use instance method (aliased as matchDescriptors in WebGPU previously)
+                        } else {
+                            // CPU Matcher (instance)
+                            matches = await matcher.match(refDescs, rotDescs, 0.75);
+                        }
+
+                        if (matches.length >= 4) {
+                            const srcPts = matches.map(m => [refKps[m[0]].x, refKps[m[0]].y]);
+                            const dstPts = matches.map(m => [rotKps[m[1]].x, rotKps[m[1]].y]);
+
+                            // RANSAC in pixel space
+                            const res = HomographyMatrixRANSAC.estimatePixels(srcPts, dstPts, {
+                                threshold: 5.0,
+                                maxIterations: 2000
+                            });
+
+                            if (res.H) {
+                                inliers = res.inlierCount;
+                            }
+                        }
+                    }
+
+                    // Update Chart
+                    chart.data.labels.push(angle);
+                    chart.data.datasets[0].data.push(inliers);
+                    chart.update('none');
+
+                    // Yield to UI
+                    await new Promise(r => requestAnimationFrame(r));
+                }
+
+                status.textContent = "Test Complete.";
+                chart.update();
+
+            } catch (e) {
+                console.error(e);
+                status.textContent = "Error: " + e.message;
+            } finally {
+                isRunning = false;
+                runBtn.disabled = false;
+                modeSelect.disabled = false;
+                pauseBtn.disabled = true;
+            }
+        }
+
+        initChart();
+        runBtn.addEventListener('click', runTest);
+
+        // Auto run
+        // runTest(); 
+
+    </script>
+</body>
+
+</html>

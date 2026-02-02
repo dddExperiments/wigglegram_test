@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU SIFT - Stereo Wigglegram</title>
+    <link rel="stylesheet" href="../styles/common.css">
+    <link rel="stylesheet" href="../styles/demo.css">
+
+</head>
+
+<body>
+    <div id="info">WebGPU SIFT - Stereo</div>
+
+    <div id="controls">
+        <div class="section-title">Stereo Pair</div>
+
+        <div class="image-pair-container">
+            <div class="image-selector">
+                <div class="indicator a"></div>
+                <select id="imageSelectA">
+                    <option value="../public/testdata/a/frame_31_left.jpg">Frame 31 Left</option>
+                    <option value="../public/testdata/a/frame_31_right.jpg">Frame 31 Right</option>
+                    <option value="../public/testdata/b/P1170063.JPG">P1170063</option>
+                    <option value="../public/testdata/b/P1170067.JPG">P1170067</option>
+                </select>
+            </div>
+            <div class="image-selector">
+                <div class="indicator b"></div>
+                <select id="imageSelectB">
+                    <option value="../public/testdata/a/frame_31_right.jpg">Frame 31 Right</option>
+                    <option value="../public/testdata/a/frame_31_left.jpg">Frame 31 Left</option>
+                    <option value="../public/testdata/b/P1170067.JPG">P1170067</option>
+                    <option value="../public/testdata/b/P1170063.JPG">P1170063</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="keypoint-count" id="keypointCount">
+            A: <span id="countA">-</span> | B: <span id="countB">-</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="toggle-container">
+            <span class="toggle-label">CPU</span>
+            <label class="toggle">
+                <input type="checkbox" id="modeToggle" checked>
+                <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">WebGPU</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="toggle-container">
+            <label class="toggle-label" title="Use WebGPU Compute Shader">
+                <input type="checkbox" id="gpuMatchToggle" checked>
+                Use GPU Matching
+            </label>
+            <label class="toggle-label" title="Use Optimized Shaders (Atomics/Workgroups)">
+                <input type="checkbox" id="gpuOptToggle" checked>
+                Enable Optimizations
+            </label>
+        </div>
+
+        <button id="runSiftBothBtn" class="btn btn-primary">Run SIFT on Both</button>
+
+        <div class="divider"></div>
+
+        <button id="generateWiggleBtn" class="btn btn-success" disabled>Generate Wigglegram</button>
+
+        <div class="divider"></div>
+
+        <div class="section-title">View</div>
+        <div class="toggle-container">
+            <span class="toggle-label">A</span>
+            <label class="toggle">
+                <input type="checkbox" id="viewToggle">
+                <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">B</span>
+        </div>
+    </div>
+
+    <div id="status">Initializing...</div>
+    <canvas id="keypointCanvas"></canvas>
+
+    <div id="overlay"></div>
+    <div id="wigglegram-preview">
+        <img id="wigglegram-img" src="" alt="Wigglegram">
+        <div class="preview-controls">
+            <a id="downloadBtn" class="btn btn-primary" download="wigglegram.gif">Download GIF</a>
+            <button id="closePreviewBtn" class="btn btn-secondary">Close</button>
+        </div>
+    </div>
+
+    <script type="module" src="js/stereo_pair.js"></script>
+</body>
+
+</html>

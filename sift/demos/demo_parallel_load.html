@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Parallel Image Loading Demo</title>
+    <link rel="stylesheet" href="../styles/common.css">
+    <link rel="stylesheet" href="../styles/demo.css">
+    <style>
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .image-container {
+            border: 1px solid #333;
+            background: #111;
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border-radius: 4px;
+        }
+
+        .image-container canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Parallel Image Loading</h1>
+        <p>This demo uses Web Workers to fetch and decode images in parallel without blocking the main UI thread.</p>
+
+        <div class="controls">
+            <button id="loadParallel" class="btn btn-primary">Load 20 Images (Parallel)</button>
+            <button id="clear" class="btn btn-outline">Clear</button>
+        </div>
+
+        <div id="status" class="stats-panel" style="margin-top: 1rem;">
+            <div class="stat-item"><span class="label">Total Time:</span> <span id="totalTime" class="value">-</span>
+            </div>
+            <div class="stat-item"><span class="label">Active Workers:</span> <span id="workerCount"
+                    class="value">4</span></div>
+        </div>
+
+        <div class="image-grid" id="grid"></div>
+    </div>
+
+    <script type="module">
+        import { ParallelImageLoader } from '../src/parallel-processor.js';
+
+        const loader = new ParallelImageLoader(4);
+        const grid = document.getElementById('grid');
+        const totalSpan = document.getElementById('totalTime');
+
+        // Random image URLs (using picsum)
+        const generateUrls = (count) => {
+            const urls = [];
+            for (let i = 0; i < count; i++) {
+                // Add random seed to avoid cache
+                urls.push(`https://picsum.photos/seed/${Math.random()}/800/600`);
+            }
+            return urls;
+        };
+
+        async function runParallel() {
+            grid.innerHTML = '';
+            totalSpan.textContent = 'Loading...';
+
+            const urls = generateUrls(20);
+            const t0 = performance.now();
+
+            try {
+                // Load all in parallel
+                const bitmaps = await loader.loadAll(urls);
+                const total = performance.now() - t0;
+                totalSpan.textContent = `${total.toFixed(1)}ms`;
+
+                bitmaps.forEach(bitmap => {
+                    const container = document.createElement('div');
+                    container.className = 'image-container';
+                    const canvas = document.createElement('canvas');
+                    canvas.width = bitmap.width;
+                    canvas.height = bitmap.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(bitmap, 0, 0);
+                    container.appendChild(canvas);
+                    grid.appendChild(container);
+
+                    // We can close bitmaps after drawing if we want to save memory,
+                    // but usually ImageBitmap is zero-copy in transfer so it's managed.
+                    bitmap.close();
+                });
+            } catch (err) {
+                totalSpan.textContent = 'Error: ' + err.message;
+            }
+        }
+
+        document.getElementById('loadParallel').onclick = runParallel;
+        document.getElementById('clear').onclick = () => {
+            grid.innerHTML = '';
+            totalSpan.textContent = '-';
+        };
+    </script>
+</body>
+
+</html>
