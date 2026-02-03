@@ -67,7 +67,7 @@
     <script type="module">
         import { SIFTWebGPUPacked } from '../src/sift-webgpu-packed.js';
         import { MatcherWebGPU } from '../src/matcher-webgpu.js';
-        import { HomographyMatrixRANSAC } from '../src/geometry/homography_matrix.js';
+        import { HomographyMatrixRANSAC, HomographyMatrix } from '../src/geometry/homography_matrix.js';
 
         const btnStart = document.getElementById('btnStart');
         const status = document.getElementById('status');
@@ -90,7 +90,7 @@
         let matcherGPU = null;
         let isRunning = false;
         let isPaused = false;
-        let lastH = null;
+        let prevCorners = null;
 
         async function init() {
             try {
@@ -187,9 +187,9 @@
                     // Draw Video
                     ctxCam.drawImage(video, 0, 0, canvasCam.width, canvasCam.height);
 
-                    // Always draw cached H if exists
-                    if (lastH) {
-                        drawHomography(ctxCam, lastH, refImage.width, refImage.height);
+                    // Draw previous overlay immediately (to persist during processing)
+                    if (prevCorners) {
+                        drawQuad(ctxCam, prevCorners);
                     }
 
                     // Run SIFT GPU
@@ -222,15 +222,65 @@
                         const srcPts = matches.map(m => [refKeypoints[m[0]].x, refKeypoints[m[0]].y]);
                         const dstPts = matches.map(m => [camKeypoints[m[1]].x, camKeypoints[m[1]].y]);
 
+                        // Initial RANSAC
                         const result = HomographyMatrixRANSAC.estimatePixels(srcPts, dstPts, { threshold: 8.0, maxIterations: 50 });
 
-                        if (result.H) {
+                        if (result.H && result.inlierCount > 10) {
                             inlierCount = result.inlierCount;
-                            // Cache good homography
-                            if (inlierCount > 10) { // Simple quality threshold
-                                lastH = result.H;
+
+                            // 1. Refine with ALL inliers (Refinement)
+                            const inlierSrc = result.inliers.map(i => srcPts[i]);
+                            const inlierDst = result.inliers.map(i => dstPts[i]);
+                            // Use DLT on all inliers
+                            let refinedH = HomographyMatrix.compute4Point(inlierSrc, inlierDst);
+
+                            if (!refinedH) {
+                                refinedH = result.H;
                             }
+
+                            if (refinedH) {
+                                // 2. Compute Corners
+                                const w = refImage.width;
+                                const h = refImage.height;
+                                const transform = (x, y, H) => {
+                                    const d = H[2][0] * x + H[2][1] * y + H[2][2];
+                                    return {
+                                        x: (H[0][0] * x + H[0][1] * y + H[0][2]) / d,
+                                        y: (H[1][0] * x + H[1][1] * y + H[1][2]) / d
+                                    };
+                                };
+
+                                let corners = [
+                                    transform(0, 0, refinedH),
+                                    transform(w, 0, refinedH),
+                                    transform(w, h, refinedH),
+                                    transform(0, h, refinedH)
+                                ];
+
+                                if (corners.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) {
+                                    prevCorners = null;
+                                } else {
+                                    // 3. Temporal Smoothing
+                                    if (prevCorners) {
+                                        const alpha = 0.8;
+                                        for (let i = 0; i < 4; i++) {
+                                            corners[i].x = corners[i].x * alpha + prevCorners[i].x * (1 - alpha);
+                                            corners[i].y = corners[i].y * alpha + prevCorners[i].y * (1 - alpha);
+                                        }
+                                    }
+                                    prevCorners = corners;
+
+                                    // 4. Draw Overlay
+                                    drawQuad(ctxCam, corners);
+                                }
+                            } else {
+                                prevCorners = null;
+                            }
+                        } else {
+                            prevCorners = null;
                         }
+                    } else {
+                        prevCorners = null;
                     }
 
                     document.getElementById('inliers').textContent = inlierCount;
@@ -248,27 +298,16 @@
             }
         }
 
-        function drawHomography(ctx, H, w, h) {
-            function transform(x, y) {
-                const d = H[2][0] * x + H[2][1] * y + H[2][2];
-                return {
-                    x: (H[0][0] * x + H[0][1] * y + H[0][2]) / d,
-                    y: (H[1][0] * x + H[1][1] * y + H[1][2]) / d
-                };
-            }
+        function drawQuad(ctx, points, color = '#00ff00') {
+            if (!points || points.length !== 4) return;
 
-            const p0 = transform(0, 0);
-            const p1 = transform(w, 0);
-            const p2 = transform(w, h);
-            const p3 = transform(0, h);
-
-            ctx.strokeStyle = '#00ff00';
+            ctx.strokeStyle = color;
             ctx.lineWidth = 4;
             ctx.beginPath();
-            ctx.moveTo(p0.x, p0.y);
-            ctx.lineTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.lineTo(p3.x, p3.y);
+            ctx.moveTo(points[0].x, points[0].y);
+            ctx.lineTo(points[1].x, points[1].y);
+            ctx.lineTo(points[2].x, points[2].y);
+            ctx.lineTo(points[3].x, points[3].y);
             ctx.closePath();
             ctx.stroke();
         }
